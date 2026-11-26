@@ -321,9 +321,8 @@ The Resource Service owns its resource data and manages its application-level ca
 
 ## Evaluation Criteria
 
-1. A standalone Resource Service is created as a module under the LearnSphere parent Maven project (listed in the parent `pom.xml` `<modules>` with its own `pom.xml`).
-2. The Resource Service has its own Spring Boot application class and its own `application.properties` (port and MongoDB database), so it can be started independently.
-3. A MongoDB `Resource` document (`@Document`) and a separate `ResourceDTO` are implemented, and the REST API returns `ResourceDTO`.
-4. `GET /api/resources/{id}` retrieves resource data and uses `@Cacheable` with the resource ID as the cache key.
-5. `PUT /api/resources/{id}` updates the resource and uses `@CacheEvict` with the resource ID as the key to remove the corresponding cached entry.
-6. Caffeine is configured as the cache provider (`spring.cache.type=caffeine`) for the resource cache with a suitable TTL (for example, `expireAfterWrite` in `spring.cache.caffeine.spec`).
+1. A standalone Resource Service module is added to the LearnSphere parent Maven project, with its own `pom.xml`, Spring Boot application class and `application.properties`.
+2. A MongoDB `Resource` document and a separate `ResourceDTO` are implemented, and the REST API uses the `ResourceDTO`.
+3. The service method for `GET /api/resources/{id}` is annotated with `@Cacheable` using the resource ID as the cache key.
+4. The service method for `PUT /api/resources/{id}` updates the resource and is annotated with `@CacheEvict` using the resource ID as the cache key.
+5. Spring caching is enabled and Caffeine is configured as the cache provider with a TTL for the resource cache.
