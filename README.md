@@ -245,13 +245,9 @@ The **API Gateway** is the entry point for client requests, while **Eureka Serve
 
 ## Evaluation Criteria
 
-* A Eureka Server is created and configured correctly as the service registry.
-* Course, Learner, Enrollment, and Notification services successfully register with Eureka.
-* All four services are visible in the Eureka dashboard.
-* A Spring Cloud Gateway is created and configured as a Eureka client.
-* Gateway routes are configured for Course, Learner, and Enrollment services.
-* Gateway routes use appropriate path predicates.
-* Gateway routes use Eureka service discovery instead of fixed backend addresses.
-* Requests sent through the Gateway successfully reach the Course, Learner, and Enrollment services.
-* The complete **Client → API Gateway → Eureka → Service** flow is successfully verified.
-* All services and infrastructure components remain independently bootable.
+1. A Eureka Server is created and configured correctly as the service registry.
+2. A Spring Cloud Gateway is created and configured as a Eureka client.
+3. Gateway routes are configured for Course, Learner, and Enrollment services.
+4. Gateway routes use appropriate path predicates.
+5. Gateway routes use Eureka service discovery instead of fixed backend addresses.
+6. Requests sent through the Gateway reach the Course, Learner, and Enrollment services.
