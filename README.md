@@ -155,6 +155,8 @@ Test the following scenarios:
 
 Verify the cache behavior using suitable application logs or debugging.
 
+> **Scope:** Verifying the scenarios with the application logs is sufficient. Automated integration tests (for example, with Testcontainers or a short test TTL) are optional.
+
 ### Verification Checklist
 
 Start MongoDB and the Resource Service, then run the requests below and watch the Resource Service logs. The service logs a line such as `Fetching resource <id> from MongoDB` only when it reads from the database (cache miss).
@@ -241,6 +243,7 @@ Expected: the log shows `Fetching resource <id1> from MongoDB`, confirming the c
 * The resource ID must be used as the cache key.
 * The Resource Service must not be added as functionality inside an existing LearnSphere service.
 * Cached data must be evicted when the corresponding resource is successfully updated.
+* Cache behavior may be verified using application logs; automated integration tests are optional.
 
 ---
 

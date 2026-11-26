@@ -80,25 +80,38 @@ class ResourceServiceApplicationTests {
     }
 
     @Test
-    @DisplayName("PUT evicts the cache entry; the next GET reads the updated resource from MongoDB")
-    void updateEvictsCacheEntry() {
+    @DisplayName("GET miss -> repeated GET hit -> PUT evicts -> GET miss returns updated DTO -> repeated GET hit")
+    void updateEvictsCacheAndNextGetRecachesUpdatedDto() {
         Resource original = new Resource("r3", "Old Name", "Old", "https://learnsphere.io/r3");
         Resource updated = new Resource("r3", "New Name", "New", "https://learnsphere.io/r3-v2");
         when(resourceRepository.findById("r3")).thenReturn(Optional.of(original));
         when(resourceRepository.save(any(Resource.class))).thenReturn(updated);
 
-        resourceService.getResourceById("r3");
-        assertThat(cacheManager.getCache("resources").get("r3")).isNotNull();
+        // 1. First GET: cache miss -> MongoDB read (findById #1)
+        assertThat(resourceService.getResourceById("r3").getName()).isEqualTo("Old Name");
+        verify(resourceRepository, times(1)).findById("r3");
 
-        resourceService.updateResource("r3",
+        // 2. Repeated GET: cache hit -> no MongoDB read
+        assertThat(resourceService.getResourceById("r3").getName()).isEqualTo("Old Name");
+        verify(resourceRepository, times(1)).findById("r3");
+
+        // 3. PUT: updates MongoDB (findById #2 inside update) and evicts the cache entry
+        ResourceDTO putResult = resourceService.updateResource("r3",
                 new ResourceDTO(null, "New Name", "New", "https://learnsphere.io/r3-v2"));
+        assertThat(putResult.getName()).isEqualTo("New Name");
+        verify(resourceRepository, times(2)).findById("r3");
         assertThat(cacheManager.getCache("resources").get("r3")).isNull();
 
+        // 4. GET after update: cache miss -> MongoDB read (findById #3) returns the updated DTO
         when(resourceRepository.findById("r3")).thenReturn(Optional.of(updated));
         ResourceDTO afterUpdate = resourceService.getResourceById("r3");
-
         assertThat(afterUpdate.getName()).isEqualTo("New Name");
-        assertThat(cacheManager.getCache("resources").get("r3")).isNotNull();
+        assertThat(afterUpdate.getUrl()).isEqualTo("https://learnsphere.io/r3-v2");
+        verify(resourceRepository, times(3)).findById("r3");
+
+        // 5. Repeated GET: the updated DTO is now served from the cache
+        assertThat(resourceService.getResourceById("r3").getName()).isEqualTo("New Name");
+        verify(resourceRepository, times(3)).findById("r3");
     }
 
     @Test
