@@ -1,208 +1,164 @@
-# Practice: Implement Asynchronous Service Communication
+# Practice: Persist Notifications Using MongoDB
 
 ## Problem Statement
 
-Enhance the **LearnSphere** microservices architecture by introducing **asynchronous, event-driven communication** between the **Enrollment Service** and the **Notification Service**.
+Enhance the **Notification Service** by giving it its own database for storing notification records.
 
-When an enrollment is confirmed, the Enrollment Service must publish an `EnrollmentConfirmed` event to **RabbitMQ**. The Notification Service must consume this event and process it by sending a simple enrollment confirmation notification.
+The Notification Service already consumes `EnrollmentConfirmed` events from RabbitMQ. In this practice, you will introduce **MongoDB** as the Notification Service's database and persist a notification record whenever an enrollment confirmation event is processed.
 
-The Enrollment Service must not directly call the Notification Service. RabbitMQ must act as the communication channel between the two services.
+The Notification Service must independently manage its notification data using **Spring Data MongoDB**, following the **Database-per-Service** approach established in Sprint 1.
 
-The Notification Service must also handle duplicate events safely so that processing the same event more than once does not result in duplicate notifications.
-
-The entire LearnSphere application along with RabbitMQ must be dockerized and run using **Docker**.
+MongoDB, RabbitMQ, and the entire LearnSphere application suite must be dockerized and run using **Docker** and Docker Compose.
 
 ---
 
-## Task-1: Dockerize the LearnSphere Application and Configure RabbitMQ
+## Task-1: Configure MongoDB and Dockerize the LearnSphere Platform
 
 ### Task
 
-Dockerize the complete LearnSphere microservices platform and configure RabbitMQ as the messaging broker using Docker Compose.
+Add MongoDB as a Docker service for the Notification Service and configure the complete application platform using Docker Compose.
 
 ### Requirements
 
-* Create a single root `Dockerfile` to build all Maven modules and provide dedicated target stages for each service. Use Java 25 images that match the project toolchain (Java 25, Spring Boot 4.1.1, Spring Cloud 2025.1.x), for example `maven:3.9.16-eclipse-temurin-25` for the build stage and `eclipse-temurin:25-jre` for the service stages:
-  * `discovery-server`
-  * `api-gateway`
-  * `course-service`
-  * `learner-service`
-  * `enrollment-service`
-  * `notification-service`
-* Create a `docker-compose.yml` to orchestrate all LearnSphere microservices and RabbitMQ.
-* Configure RabbitMQ as a Docker service:
-  * Use the official `rabbitmq:4-management` image with the management interface.
-  * Expose the RabbitMQ messaging port (`5672`) and management dashboard port (`15672`).
-  * Configure default credentials (`guest`/`guest`) and container healthcheck.
-* Configure environment variables and service dependencies:
-  * Set `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/` for all services.
-  * Configure Enrollment and Notification services to connect to RabbitMQ using host `rabbitmq` and port `5672`.
-  * Configure `depends_on` rules so dependent services wait for `discovery-server` and `rabbitmq`.
-* Verify that all services and RabbitMQ build and start successfully using Docker Compose.
+* Add MongoDB as a Docker service in `docker-compose.yml`:
+  * Use the official `mongo:8.0` Docker image.
+  * Expose the MongoDB port (`27017`).
+  * Configure the database name (`notificationdb`) and healthcheck.
+* Configure the MongoDB connection for the Notification Service:
+  * Add the required `spring-boot-starter-data-mongodb` dependency.
+  * Configure the Notification Service to connect to its MongoDB database (`mongodb://mongodb:27017/notificationdb` inside Docker and `mongodb://localhost:27017/notificationdb` locally).
+* Orchestrate all services in `docker-compose.yml` using the single multi-stage root `Dockerfile` alongside RabbitMQ and MongoDB.
+* Ensure the MongoDB instance is independent of the databases used by other LearnSphere services.
 
 ---
 
-## Task-2: Create and Publish the EnrollmentConfirmed Event
+## Task-2: Create the Notification Document
 
 ### Task
 
-Create an event that represents a successfully confirmed enrollment and publish it from the Enrollment Service.
+Design a MongoDB document to represent a notification record.
 
 ### Requirements
 
-Create an `EnrollmentConfirmed` event containing appropriate information, such as:
+Create a notification document containing appropriate information, such as:
 
+* `id`
 * `eventId`
 * `enrollmentId`
 * `learnerId`
 * `courseId`
+* `message`
 
-The Enrollment Service must:
+The document must:
 
-* Create the event when an enrollment is confirmed.
-* Publish the event to RabbitMQ.
-* Use an appropriate exchange and routing key.
-* Serialize the event into a message format suitable for transmission.
-* Not directly call the Notification Service.
+* Be configured as a MongoDB document.
+* Have a unique identifier.
+* Store the `eventId` used to identify the processed `EnrollmentConfirmed` event.
+* Store enough information to represent the enrollment confirmation notification.
 
-The communication must follow:
-
-```text
-Enrollment Service
-        │
-        │ Publish EnrollmentConfirmed
-        ▼
-     RabbitMQ
-```
+The exact fields may vary, but the document must contain the information required to represent and retrieve a notification record.
 
 ---
 
-## Task-3: Consume the Event in Notification Service
+## Task-3: Create the Notification Repository
 
 ### Task
 
-Configure the Notification Service to consume `EnrollmentConfirmed` events from RabbitMQ.
+Create a repository for persisting and retrieving notification documents.
 
 ### Requirements
 
-The Notification Service must:
+* Create a `NotificationRepository` interface.
+* Configure it as a Spring Data MongoDB repository.
+* Use the notification document as the repository entity.
+* Provide the standard operations required to save and retrieve notification records.
 
-* Connect to RabbitMQ.
-* Configure the required exchange, queue, and binding.
-* Listen for `EnrollmentConfirmed` events.
-* Deserialize the received event.
-* Process the event after receiving it.
+---
 
-The communication must follow:
+## Task-4: Store Notifications When Events Are Processed
+
+### Task
+
+Enhance the existing `EnrollmentConfirmed` event consumer to persist notification records.
+
+### Requirements
+
+When the Notification Service receives an `EnrollmentConfirmed` event:
+
+* Consume the event from RabbitMQ.
+* Create a notification document from the event information.
+* Store the notification document in MongoDB.
+* Ensure that the notification is persisted only after the event has been successfully processed.
+* Use the `eventId` to maintain the idempotent behavior established in the previous sprint.
+
+If the same event is received again, it must not create another notification record.
+
+The duplicate check may keep the approach from the previous sprint, or check the stored notification records, for example with a repository method such as `existsByEventId(eventId)`.
+
+The flow should be:
 
 ```text
-     RabbitMQ
+Enrollment Service
         │
         │ EnrollmentConfirmed
         ▼
+     RabbitMQ
+        │
+        ▼
 Notification Service
+        │
+        ▼
+ Create Notification
+        │
+        ▼
+    MongoDB
 ```
-
-The Notification Service must not require a direct REST call from the Enrollment Service.
 
 ---
 
-## Task-4: Process the Enrollment Confirmation
+## Task-5: Retrieve Notification Records
 
 ### Task
 
-Process the `EnrollmentConfirmed` event and send a simple enrollment confirmation notification.
+Provide a REST API to retrieve the notification records stored in MongoDB.
 
 ### Requirements
 
-When an `EnrollmentConfirmed` event is received, the Notification Service must:
+Create a REST controller that provides an API similar to:
 
-* Extract the relevant enrollment information from the event.
-* Create a simple confirmation notification.
-* Process or record the notification.
-* Ensure that the notification is produced as a result of consuming the event.
+| HTTP Method | Endpoint              | Purpose                           |
+| ----------- | --------------------- | --------------------------------- |
+| `GET`       | `/notifications`      | Retrieve all stored notifications |
+| `GET`       | `/notifications/{id}` | Retrieve a notification by ID     |
 
-For example:
+The API must:
 
-```text
-Enrollment confirmed successfully for Learner 101
-for Course 201.
-```
-
-The notification may be represented as a log message or stored using a simple implementation appropriate for the exercise.
+* Retrieve notification records from MongoDB.
+* Return the notification information as JSON.
+* Use the repository layer to access MongoDB.
+* Not use an in-memory collection to store notification records.
 
 ---
 
-## Task-5: Make the Notification Consumer Idempotent
+## Task-6: Verify MongoDB Persistence
 
 ### Task
 
-Ensure that processing the same `EnrollmentConfirmed` event multiple times does not create duplicate notifications.
+Verify that notifications generated from `EnrollmentConfirmed` events are persisted and can be retrieved.
 
 ### Requirements
-
-The `EnrollmentConfirmed` event must contain a unique `eventId`.
-
-The Notification Service must:
-
-* Use the `eventId` to identify an already processed event.
-* Check whether the event has already been processed before creating a notification.
-* Process a new event only once.
-* Ignore a duplicate event without creating another notification.
-
-For example:
-
-```text
-Event received
-     │
-     ▼
-Is eventId already processed?
-     │
-   ┌─┴─┐
-  No  Yes
-  │    │
-  ▼    ▼
-Process Ignore
-  │
-  ▼
-Record eventId
-```
-
-* Check and record the `eventId` in one step, for example by using the boolean result of `Set.add(eventId)`: it returns `false` when the `eventId` was already processed.
-* An in-memory collection of processed `eventId`s is sufficient for this practice.
-
-> **Scope:** Persisting processed event IDs across service restarts (for example, in a database) and dead-letter queues are **out of scope** for this practice.
-
----
-
-## Task-6: Verify Asynchronous Communication
-
-### Task
-
-Verify the complete asynchronous communication flow between the Enrollment and Notification services.
-
-### Requirements
-
-Start the following components:
-
-```text
-RabbitMQ
-Enrollment Service
-Notification Service
-```
 
 Verify the following scenarios:
 
-| Scenario                         | Action                                         | Expected Result                                             |
-| -------------------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
-| Enrollment confirmed             | Confirm an enrollment                          | `EnrollmentConfirmed` event is published                    |
-| Event available                  | Check RabbitMQ                                 | Message is delivered to the Notification Service            |
-| Notification processing          | Notification Service consumes the event        | Enrollment confirmation notification is produced            |
-| Duplicate event                  | Deliver the same `eventId` again               | No duplicate notification is produced                       |
-| Notification Service unavailable | Publish an event while consumer is unavailable | Message remains available in RabbitMQ for later consumption |
-| Notification Service restored    | Start the Notification Service again           | Pending event is consumed and processed                     |
+| Scenario                  | Action                                  | Expected Result                             |
+| ------------------------- | --------------------------------------- | ------------------------------------------- |
+| New enrollment            | Confirm an enrollment                   | `EnrollmentConfirmed` event is published    |
+| Event processing          | Notification Service consumes the event | Notification record is stored in MongoDB    |
+| Retrieve notifications    | `GET /notifications`                    | Stored notification records are returned    |
+| Retrieve one notification | `GET /notifications/{id}`               | Requested notification is returned          |
+| Duplicate event           | Process the same `eventId` again        | No duplicate notification record is created |
 
-Verify that the Enrollment Service does not make a direct REST call to the Notification Service.
+Verify that the notification data returned by the REST API matches the information from the processed enrollment event.
 
 ### Verification Checklist
 
@@ -211,12 +167,11 @@ Run the following from the project root and confirm each expected result.
 **1. Build and start the platform**
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose up --build -d
 docker compose ps
 ```
 
-Expected: all services are `Up` and `rabbitmq` is `healthy`. Open `http://localhost:8761` to confirm the services are registered with Eureka.
+Expected: all services are `Up`, and `rabbitmq` and `mongodb` are `healthy`.
 
 **2. Confirm an enrollment (publish)**
 
@@ -228,52 +183,36 @@ curl -X POST http://localhost:8080/enrollments \
 
 Expected: `201 Created` with the saved enrollment (note its `id`).
 
-**3. Check consumption**
+**3. Check the notification is stored in MongoDB**
 
 ```bash
 docker compose logs notification-service
+docker compose exec mongodb mongosh notificationdb --eval "db.notifications.find()"
 ```
 
-Expected log line:
+Expected: the log shows `Enrollment confirmed successfully for Learner 101 for Course 201.`, and one document exists in the `notifications` collection with the same `eventId`, `enrollmentId`, `learnerId` and `courseId`.
 
-```text
-Enrollment confirmed successfully for Learner 101 for Course 201.
+**4. Retrieve notifications through the REST API**
+
+```bash
+curl http://localhost:8080/notifications
+curl http://localhost:8080/notifications/<id>
 ```
 
-In the RabbitMQ Management UI (`http://localhost:15672`, `guest`/`guest`) → **Queues and Streams** → the notification queue shows `Ready: 0`.
+Expected: the list contains the stored notification, and the second call returns the notification with that `id`. The returned data matches the enrollment event.
 
-**4. Duplicate event**
+**5. Duplicate event**
 
-Publish the same event (same `eventId`) twice, for example using a duplicate-delivery endpoint:
+Publish the same event (same `eventId`) again, for example using the duplicate-delivery endpoint from the previous sprint:
 
 ```bash
 curl -X POST http://localhost:8080/enrollments/1/duplicate-notification
-docker compose logs notification-service
+curl http://localhost:8080/notifications
 ```
 
-Expected: one confirmation message **and** one `Duplicate event ignored: <eventId>` message for the same `eventId`.
+Expected: only **one** new notification record is stored for that `eventId`, and the log shows `Duplicate event ignored: <eventId>`.
 
-**5. Notification Service unavailable (message stays in RabbitMQ)**
-
-```bash
-docker compose stop notification-service
-curl -X POST http://localhost:8080/enrollments \
-  -H "Content-Type: application/json" \
-  -d '{"learnerId": 102, "courseId": 202}'
-```
-
-Expected: the enrollment is still created, and the notification queue shows `Ready: 1`.
-
-**6. Notification Service restored (pending event consumed)**
-
-```bash
-docker compose start notification-service
-docker compose logs -f notification-service
-```
-
-Expected: the pending event is processed (`Enrollment confirmed successfully for Learner 102 for Course 202.`) and the queue returns to `Ready: 0`.
-
-**7. Stop the platform**
+**6. Stop the platform**
 
 ```bash
 docker compose down
@@ -283,18 +222,17 @@ docker compose down
 
 ## Constraints
 
-* RabbitMQ must be used as the message broker.
-* RabbitMQ must be configured and run using Docker, with a root multi-stage `Dockerfile` and `docker-compose.yml` configured to dockerize the complete application.
-* The Enrollment Service must publish an `EnrollmentConfirmed` event.
-* The Notification Service must consume the `EnrollmentConfirmed` event.
-* The Enrollment Service must not directly call the Notification Service.
-* Communication between Enrollment and Notification must occur through RabbitMQ.
-* The event must contain a unique `eventId`.
-* The Notification consumer must be idempotent.
-* Duplicate events must not result in duplicate notifications.
-* Processed event IDs may be tracked in memory; durable storage of processed event IDs across restarts is out of scope.
-* The asynchronous communication must be independently verifiable.
-* The Enrollment and Notification services must remain independently bootable.
+* The Notification Service must use **MongoDB** as its database.
+* MongoDB (`mongo:8.0`), RabbitMQ, and the complete application suite must be configured and orchestrated using **Docker** and Docker Compose.
+* MongoDB must be independently managed by the Notification Service.
+* The Notification Service must use **Spring Data MongoDB** for persistence.
+* Notification data must not be stored in an in-memory Java collection.
+* A notification must be persisted when an `EnrollmentConfirmed` event is successfully processed.
+* The existing RabbitMQ-based event communication must be retained.
+* The Notification Service must maintain the idempotent behavior established in the previous sprint.
+* Duplicate `EnrollmentConfirmed` events must not create duplicate notification records.
+* Notification records must be retrievable through a REST API.
+* Other LearnSphere services must not directly access the Notification Service's MongoDB database.
 
 ---
 
@@ -320,16 +258,7 @@ learnsphere/
 │   └── ...
 │
 ├── enrollment-service/
-│   ├── pom.xml
-│   └── src/
-│       └── main/
-│           ├── java/
-│           │   ├── EnrollmentServiceApplication.java
-│           │   ├── EnrollmentController.java
-│           │   ├── EnrollmentService.java
-│           │   └── EnrollmentConfirmed.java
-│           └── resources/
-│               └── application.properties
+│   └── ...
 │
 ├── notification-service/
 │   ├── pom.xml
@@ -337,8 +266,11 @@ learnsphere/
 │       └── main/
 │           ├── java/
 │           │   ├── NotificationServiceApplication.java
-│           │   ├── NotificationConsumer.java
+│           │   ├── Notification.java
+│           │   ├── NotificationRepository.java
 │           │   ├── NotificationService.java
+│           │   ├── NotificationController.java
+│           │   ├── NotificationConsumer.java
 │           │   └── EnrollmentConfirmed.java
 │           └── resources/
 │               └── application.properties
@@ -353,29 +285,56 @@ learnsphere/
 ```text
                     Enrollment Service
                            │
-                           │ Publish Event
+                           │ EnrollmentConfirmed
                            ▼
-                    ┌─────────────┐
-                    │  RabbitMQ   │
-                    └──────┬──────┘
+                      RabbitMQ
                            │
-                           │ Consume Event
                            ▼
                   Notification Service
                            │
                            ▼
-                  Confirmation Notification
+                       MongoDB
+                           │
+                           │
+                           ▼
+                    Notification API
 ```
 
-The Enrollment Service publishes an `EnrollmentConfirmed` event without knowing about the Notification Service. RabbitMQ delivers the event to the Notification Service, which consumes and processes it independently.
+The **Notification Service owns its notification data** and is the only service responsible for managing its MongoDB database.
+
+---
+
+## Running with Docker Compose
+
+To build and launch the entire microservice ecosystem along with RabbitMQ and MongoDB (`mongo:8.0`):
+
+1. **Build and start all services:**
+   ```bash
+   docker compose up --build -d
+   ```
+
+2. **Verify running containers:**
+   ```bash
+   docker compose ps
+   ```
+
+3. **Verify notifications via API Gateway:**
+   ```bash
+   curl http://localhost:8080/notifications
+   ```
+
+4. **Stop all services:**
+   ```bash
+   docker compose down
+   ```
 
 ---
 
 ## Evaluation Criteria
 
-1. A root multi-stage `Dockerfile` with a target stage for each service and a `docker-compose.yml` defining all LearnSphere services and RabbitMQ (`rabbitmq:4-management` with healthcheck, Eureka and RabbitMQ environment variables, and `depends_on` rules) are provided.
-2. An `EnrollmentConfirmed` event is created with a unique `eventId` and relevant enrollment information.
-3. Enrollment Service publishes the `EnrollmentConfirmed` event to RabbitMQ when an enrollment is confirmed.
-4. Notification Service is configured to consume `EnrollmentConfirmed` events from RabbitMQ.
-5. Enrollment Service does not directly call Notification Service; RabbitMQ is used as the communication channel between the two services.
-6. Notification Service uses the event ID to prevent duplicate processing of the same event (in-memory tracking of processed event IDs is sufficient; durability across restarts is out of scope).
+1. MongoDB (`mongo:8.0`) and RabbitMQ are defined as Docker services with healthchecks in `docker-compose.yml`, and the complete LearnSphere platform is orchestrated with Docker Compose using the root multi-stage `Dockerfile`.
+2. The Notification Service is configured to use Spring Data MongoDB for persistence (`spring-boot-starter-data-mongodb` dependency and MongoDB connection URI).
+3. A Notification document is implemented with appropriate notification and event information, including the `eventId` of the processed `EnrollmentConfirmed` event.
+4. A Spring Data MongoDB repository is created for notification persistence and retrieval.
+5. The Notification Service persists `EnrollmentConfirmed` event notifications in MongoDB without using an in-memory collection for notification records.
+6. REST APIs are provided to retrieve all notifications and an individual notification, returning notification records as JSON.

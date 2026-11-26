@@ -19,6 +19,24 @@ services:
 
 
   # -------------------------
+  # MongoDB (Notification Service database)
+  # -------------------------
+  mongodb:
+    image: mongo:8.0
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: notificationdb
+    volumes:
+      - notification-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  # -------------------------
   # Eureka Discovery Server
   # -------------------------
   discovery-server:
@@ -108,8 +126,12 @@ services:
       SPRING_RABBITMQ_USERNAME: guest
       SPRING_RABBITMQ_PASSWORD: guest
 
+      SPRING_MONGODB_URI: mongodb://mongodb:27017/notificationdb
+
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
       discovery-server:
         condition: service_started
@@ -136,3 +158,9 @@ services:
         condition: service_started
       enrollment-service:
         condition: service_started
+      notification-service:
+        condition: service_started
+
+
+volumes:
+  notification-mongo-data:
