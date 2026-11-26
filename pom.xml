@@ -25,6 +25,7 @@
         <module>learner-service</module>
         <module>enrollment-service</module>
         <module>notification-service</module>
+        <module>resource-service</module>
     </modules>
 
     <properties>

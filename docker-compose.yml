@@ -136,6 +136,44 @@ services:
 
 
   # -------------------------
+  # MongoDB (Resource Service database)
+  # -------------------------
+  resource-mongodb:
+    image: mongo:8.0
+    ports:
+      - "27018:27017"
+    volumes:
+      - resource-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  # -------------------------
+  # Resource Service
+  # -------------------------
+  resource-service:
+    build:
+      context: .
+      target: resource-service
+    ports:
+      - "8085:8085"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+
+      SPRING_MONGODB_URI: mongodb://resource-mongodb:27017/resourcedb
+
+    depends_on:
+      resource-mongodb:
+        condition: service_started
+      discovery-server:
+        condition: service_started
+
+
+  # -------------------------
   # API Gateway
   # -------------------------
   api-gateway:
@@ -160,3 +198,4 @@ services:
 
 volumes:
   notification-mongo-data:
+  resource-mongo-data:

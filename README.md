@@ -1,245 +1,246 @@
-# Practice: Persist Notifications Using MongoDB
+# Practice: Implement Application-Level Caching
 
 ## Problem Statement
 
-Enhance the **Notification Service** by giving it its own database for storing notification records.
+Enhance the **LearnSphere** microservices architecture by introducing **application-level caching** in a new **Resource Service**.
 
-The Notification Service already consumes `EnrollmentConfirmed` events from RabbitMQ. In this practice, you will introduce **MongoDB** as the Notification Service's database and persist a notification record whenever an enrollment confirmation event is processed.
+Create the Resource Service as an independent Spring Boot module under the existing LearnSphere parent project. The service will manage resource information and use **Spring Cache** with **Caffeine** to reduce repeated database access.
 
-The Notification Service must independently manage its notification data using **Spring Data MongoDB**, following the **Database-per-Service** approach established in Sprint 1.
-
-MongoDB, RabbitMQ, and the entire LearnSphere application suite must be dockerized and run using **Docker** and Docker Compose.
+The Resource Service must cache resource data when it is retrieved and remove stale cached data when a resource is updated.
 
 ---
 
-## Task-1: Configure MongoDB and Dockerize the LearnSphere Platform
+## Task-1: Create the Resource Service
 
 ### Task
 
-Add MongoDB as a Docker service for the Notification Service and configure the complete application platform using Docker Compose.
+Create a standalone Resource Service as a new Spring Boot module under the LearnSphere parent project.
 
 ### Requirements
 
-* Add MongoDB as a Docker service in `docker-compose.yml`:
-  * Use the official `mongo:8.0` Docker image.
-  * Expose the MongoDB port (`27017`).
-  * Configure the database name (`notificationdb`) and healthcheck.
-* Configure the MongoDB connection for the Notification Service:
-  * Add the required `spring-boot-starter-data-mongodb` dependency.
-  * Configure the Notification Service to connect to its MongoDB database (`mongodb://mongodb:27017/notificationdb` inside Docker and `mongodb://localhost:27017/notificationdb` locally).
-* Orchestrate all services in `docker-compose.yml` using the single multi-stage root `Dockerfile` alongside RabbitMQ and MongoDB.
-* Ensure the MongoDB instance is independent of the databases used by other LearnSphere services.
+The Resource Service must:
+
+* Be added as a module in the LearnSphere parent Maven project.
+* Have its own `pom.xml`.
+* Be a Spring Boot application.
+* Have its own application entry point.
+* Be independently bootable.
+* Have its own database configuration.
+* Follow the same service structure used by the existing LearnSphere services.
+
+The Resource Service must not be implemented as part of an existing service.
 
 ---
 
-## Task-2: Create the Notification Document
+## Task-2: Create the Resource Document and DTO
 
 ### Task
 
-Design a MongoDB document to represent a notification record.
+Create the data model required by the Resource Service.
 
 ### Requirements
 
-Create a notification document containing appropriate information, such as:
+Create a `Resource` document containing appropriate resource information, such as:
 
 * `id`
-* `eventId`
-* `enrollmentId`
-* `learnerId`
-* `courseId`
-* `message`
+* `name`
+* `description`
+* `url`
 
-The document must:
+The `Resource` class must:
 
 * Be configured as a MongoDB document.
 * Have a unique identifier.
-* Store the `eventId` used to identify the processed `EnrollmentConfirmed` event.
-* Store enough information to represent the enrollment confirmation notification.
+* Store resource information in the Resource Service's database.
 
-The exact fields may vary, but the document must contain the information required to represent and retrieve a notification record.
+Create a separate `ResourceDTO` to represent resource data exposed through the REST API.
 
----
-
-## Task-3: Create the Notification Repository
-
-### Task
-
-Create a repository for persisting and retrieving notification documents.
-
-### Requirements
-
-* Create a `NotificationRepository` interface.
-* Configure it as a Spring Data MongoDB repository.
-* Use the notification document as the repository entity.
-* Provide the standard operations required to save and retrieve notification records.
+The API must use the DTO rather than directly exposing the persistence document.
 
 ---
 
-## Task-4: Store Notifications When Events Are Processed
+## Task-3: Implement Resource Retrieval with Caching
 
 ### Task
 
-Enhance the existing `EnrollmentConfirmed` event consumer to persist notification records.
+Implement an API to retrieve a resource by ID and cache the retrieved resource.
 
 ### Requirements
 
-When the Notification Service receives an `EnrollmentConfirmed` event:
+Create the following API:
 
-* Consume the event from RabbitMQ.
-* Create a notification document from the event information.
-* Store the notification document in MongoDB.
-* Ensure that the notification is persisted only after the event has been successfully processed.
-* Use the `eventId` to maintain the idempotent behavior established in the previous sprint.
+| HTTP Method | Endpoint              | Purpose                   |
+| ----------- | --------------------- | ------------------------- |
+| `GET`       | `/api/resources/{id}` | Retrieve a resource by ID |
 
-If the same event is received again, it must not create another notification record.
+The service method handling the retrieval must:
 
-Tracking processed event IDs in memory, as in the previous sprint, is sufficient for this practice.
+* Use `@Cacheable`.
+* Use an appropriate cache name.
+* Use the resource ID as the cache key.
+* Retrieve the resource from the database when it is not present in the cache.
+* Return the cached value for subsequent requests for the same resource.
 
-> **Scope:** Restart-safe duplicate detection (for example, querying MongoDB by `eventId` or adding a unique index on `eventId`) is **out of scope** for this practice.
+The first request for a resource should retrieve the data from the database and place it in the cache.
 
-The flow should be:
-
-```text
-Enrollment Service
-        │
-        │ EnrollmentConfirmed
-        ▼
-     RabbitMQ
-        │
-        ▼
-Notification Service
-        │
-        ▼
- Create Notification
-        │
-        ▼
-    MongoDB
-```
+Subsequent requests for the same resource should be served from the cache while the cached entry is valid.
 
 ---
 
-## Task-5: Retrieve Notification Records
+## Task-4: Implement Resource Update with Cache Eviction
 
 ### Task
 
-Provide a REST API to retrieve the notification records stored in MongoDB.
+Implement an API to update a resource and remove its stale cached data.
 
 ### Requirements
 
-Create a REST controller that provides an API similar to:
+Create the following API:
 
-| HTTP Method | Endpoint         | Purpose                           |
-| ----------- | ---------------- | --------------------------------- |
-| `GET`       | `/notifications` | Retrieve all stored notifications |
+| HTTP Method | Endpoint              | Purpose           |
+| ----------- | --------------------- | ----------------- |
+| `PUT`       | `/api/resources/{id}` | Update a resource |
 
-The API must:
+The service method handling the update must:
 
-* Retrieve notification records from MongoDB.
-* Return the notification information as JSON.
-* Use the repository layer to access MongoDB.
-* Not use an in-memory collection to store notification records.
+* Update the resource in the database.
+* Use `@CacheEvict`.
+* Evict the cache entry corresponding to the updated resource.
+* Use the resource ID as the cache key.
+
+After a successful update, the next GET request for the resource must retrieve the updated data from the database and place the new value in the cache.
 
 ---
 
-## Task-6: Verify MongoDB Persistence
+## Task-5: Configure Caffeine Caching
 
 ### Task
 
-Verify that notifications generated from `EnrollmentConfirmed` events are persisted and can be retrieved.
+Configure application-level caching using Spring Cache and Caffeine.
 
 ### Requirements
 
-Verify the following scenarios:
+The Resource Service must:
 
-| Scenario                  | Action                                  | Expected Result                             |
-| ------------------------- | --------------------------------------- | ------------------------------------------- |
-| New enrollment            | Confirm an enrollment                   | `EnrollmentConfirmed` event is published    |
-| Event processing          | Notification Service consumes the event | Notification record is stored in MongoDB    |
-| Retrieve notifications    | `GET /notifications`                    | Stored notification records are returned    |
-| Duplicate event           | Process the same `eventId` again        | No duplicate notification record is created |
+* Include the required Spring Cache dependency.
+* Include the Caffeine caching dependency.
+* Enable Spring's caching support.
+* Configure Caffeine as the cache provider.
+* Define an appropriate cache name for resources.
+* Configure a suitable TTL (time-to-live) for cached resource data.
+* Ensure that cached entries expire after the configured TTL.
 
-Verify that the notification data returned by the REST API matches the information from the processed enrollment event.
+The TTL value may be chosen appropriately for the application.
+
+---
+
+## Task-6: Verify Cache Behavior
+
+### Task
+
+Verify that caching and cache eviction work correctly.
+
+### Requirements
+
+Test the following scenarios:
+
+| Scenario           | Action                                                         | Expected Result                                               |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------- |
+| First GET          | Request a resource for the first time                          | Resource is retrieved from the database and cached            |
+| Repeated GET       | Request the same resource again                                | Cached resource is returned                                   |
+| Different resource | Request another resource                                       | The corresponding resource is retrieved and cached separately |
+| Update             | Update the resource using PUT                                  | Resource is updated and its cache entry is evicted            |
+| GET after update   | Request the updated resource again                             | Updated resource is retrieved and cached                      |
+| TTL expiry         | Wait for the configured TTL to expire and request the resource | Resource is retrieved again and cached                        |
+
+Verify the cache behavior using suitable application logs or debugging.
 
 ### Verification Checklist
 
-Run the following from the project root and confirm each expected result.
+Start MongoDB and the Resource Service, then run the requests below and watch the Resource Service logs. The service logs a line such as `Fetching resource <id> from MongoDB` only when it reads from the database (cache miss).
 
-**1. Build and start the platform**
-
-```bash
-docker compose up --build -d
-docker compose ps
-```
-
-Expected: all services are `Up`, and `rabbitmq` and `mongodb` are `healthy`.
-
-**2. Confirm an enrollment (publish)**
+**1. Create two resources (to have data to retrieve)**
 
 ```bash
-curl -X POST http://localhost:8080/enrollments \
+curl -X POST http://localhost:8085/api/resources \
   -H "Content-Type: application/json" \
-  -d '{"learnerId": 101, "courseId": 201}'
+  -d '{"name": "Spring Boot Guide", "description": "Getting started", "url": "https://learnsphere.io/r/1"}'
+
+curl -X POST http://localhost:8085/api/resources \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Docker Basics", "description": "Containers", "url": "https://learnsphere.io/r/2"}'
 ```
 
-Expected: `201 Created` with the saved enrollment (note its `id`).
+Note the `id` returned for each resource.
 
-**3. Check the notification is stored in MongoDB**
+**2. First GET (cache miss)**
 
 ```bash
-docker compose logs notification-service
-docker compose exec mongodb mongosh
+curl http://localhost:8085/api/resources/<id1>
 ```
 
-In the MongoDB shell:
+Expected: the resource is returned, and the log shows `Fetching resource <id1> from MongoDB`.
 
-```text
-use notificationdb
-db.notifications.find()
-```
-
-Expected: the log shows `Enrollment confirmed successfully for Learner 101 for Course 201.`, and one document exists in the `notifications` collection with the same `eventId`, `enrollmentId`, `learnerId` and `courseId`.
-
-**4. Retrieve notifications through the REST API**
+**3. Repeated GET (cache hit)**
 
 ```bash
-curl http://localhost:8084/notifications
+curl http://localhost:8085/api/resources/<id1>
 ```
 
-Expected: the JSON list contains the stored notification, and its data matches the enrollment event.
+Expected: the same resource is returned, and the MongoDB-read log does **not** appear again.
 
-**5. Duplicate event**
-
-Publish the same event (same `eventId`) again, for example using the duplicate-delivery endpoint from the previous sprint:
+**4. Different resource (cached separately)**
 
 ```bash
-curl -X POST http://localhost:8080/enrollments/1/duplicate-notification
-curl http://localhost:8084/notifications
+curl http://localhost:8085/api/resources/<id2>
+curl http://localhost:8085/api/resources/<id2>
 ```
 
-Expected: only **one** new notification record is stored for that `eventId`, and the log shows `Duplicate event ignored: <eventId>`.
+Expected: the first call logs `Fetching resource <id2> from MongoDB`; the second call does not.
 
-**6. Stop the platform**
+**5. Update (cache eviction)**
 
 ```bash
-docker compose down
+curl -X PUT http://localhost:8085/api/resources/<id1> \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Spring Boot Guide v2", "description": "Updated", "url": "https://learnsphere.io/r/1-v2"}'
 ```
+
+Expected: `200 OK` with the updated resource; the log shows the update and cache eviction.
+
+**6. GET after update**
+
+```bash
+curl http://localhost:8085/api/resources/<id1>
+```
+
+Expected: the updated data is returned, and the log shows `Fetching resource <id1> from MongoDB` again.
+
+**7. TTL expiry**
+
+Wait longer than the configured TTL, then request the resource again:
+
+```bash
+curl http://localhost:8085/api/resources/<id1>
+```
+
+Expected: the log shows `Fetching resource <id1> from MongoDB`, confirming the cached entry expired.
 
 ---
 
 ## Constraints
 
-* The Notification Service must use **MongoDB** as its database.
-* MongoDB (`mongo:8.0`), RabbitMQ, and the complete application suite must be configured and orchestrated using **Docker** and Docker Compose.
-* MongoDB must be independently managed by the Notification Service.
-* The Notification Service must use **Spring Data MongoDB** for persistence.
-* Notification data must not be stored in an in-memory Java collection.
-* A notification must be persisted when an `EnrollmentConfirmed` event is successfully processed.
-* The existing RabbitMQ-based event communication must be retained.
-* The Notification Service must maintain the idempotent behavior established in the previous sprint.
-* Duplicate `EnrollmentConfirmed` events must not create duplicate notification records.
-* Processed event IDs may be tracked in memory; restart-safe duplicate detection and a unique index on `eventId` are out of scope.
-* Notification records must be retrievable through a REST API.
-* Other LearnSphere services must not directly access the Notification Service's MongoDB database.
+* The Resource Service must be created as a new Spring Boot module under the LearnSphere parent Maven project.
+* The Resource Service must be independently bootable and manageable.
+* Resource persistence must use a MongoDB document.
+* A separate `ResourceDTO` must be used for API data.
+* `GET /api/resources/{id}` must use `@Cacheable`.
+* `PUT /api/resources/{id}` must use `@CacheEvict`.
+* The cache must use Spring Cache with Caffeine.
+* A suitable TTL must be configured for the resource cache.
+* The resource ID must be used as the cache key.
+* The Resource Service must not be added as functionality inside an existing LearnSphere service.
+* Cached data must be evicted when the corresponding resource is successfully updated.
 
 ---
 
@@ -248,9 +249,6 @@ docker compose down
 ```text
 learnsphere/
 ├── pom.xml
-│
-├── Dockerfile
-├── docker-compose.yml
 │
 ├── discovery-server/
 │   └── ...
@@ -268,17 +266,19 @@ learnsphere/
 │   └── ...
 │
 ├── notification-service/
+│   └── ...
+│
+├── resource-service/
 │   ├── pom.xml
 │   └── src/
 │       └── main/
 │           ├── java/
-│           │   ├── NotificationServiceApplication.java
-│           │   ├── Notification.java
-│           │   ├── NotificationRepository.java
-│           │   ├── NotificationService.java
-│           │   ├── NotificationController.java
-│           │   ├── NotificationConsumer.java
-│           │   └── EnrollmentConfirmed.java
+│           │   ├── ResourceServiceApplication.java
+│           │   ├── Resource.java
+│           │   ├── ResourceDTO.java
+│           │   ├── ResourceRepository.java
+│           │   ├── ResourceService.java
+│           │   └── ResourceController.java
 │           └── resources/
 │               └── application.properties
 │
@@ -290,58 +290,37 @@ learnsphere/
 ## Architecture
 
 ```text
-                    Enrollment Service
-                           │
-                           │ EnrollmentConfirmed
-                           ▼
-                      RabbitMQ
-                           │
-                           ▼
-                  Notification Service
-                           │
-                           ▼
-                       MongoDB
-                           │
-                           │
-                           ▼
-                    Notification API
+                         LearnSphere
+                              │
+                              ▼
+                      Resource Service
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+                 ▼                         ▼
+             Caffeine                  MongoDB
+              Cache                   Resource Data
+                 │
+                 │
+        ┌────────┴────────┐
+        │                 │
+   GET /{id}         PUT /{id}
+   @Cacheable        @CacheEvict
+        │                 │
+        ▼                 ▼
+   Return cached     Update database
+      data           Evict cache
 ```
 
-The **Notification Service owns its notification data** and is the only service responsible for managing its MongoDB database.
-
----
-
-## Running with Docker Compose
-
-To build and launch the entire microservice ecosystem along with RabbitMQ and MongoDB (`mongo:8.0`):
-
-1. **Build and start all services:**
-   ```bash
-   docker compose up --build -d
-   ```
-
-2. **Verify running containers:**
-   ```bash
-   docker compose ps
-   ```
-
-3. **Verify stored notifications from the Notification Service:**
-   ```bash
-   curl http://localhost:8084/notifications
-   ```
-
-4. **Stop all services:**
-   ```bash
-   docker compose down
-   ```
+The Resource Service owns its resource data and manages its application-level cache independently using Spring Cache and Caffeine.
 
 ---
 
 ## Evaluation Criteria
 
-1. MongoDB (`mongo:8.0`) and RabbitMQ are defined as Docker services with healthchecks in `docker-compose.yml`, and the complete LearnSphere platform is orchestrated with Docker Compose using the root multi-stage `Dockerfile` (`depends_on` with `service_started` or `service_healthy` is acceptable).
-2. The Notification Service is configured to use Spring Data MongoDB for persistence (`spring-boot-starter-data-mongodb` dependency and MongoDB connection URI).
-3. A Notification document is implemented with appropriate notification and event information, including the `eventId` of the processed `EnrollmentConfirmed` event.
-4. A Spring Data MongoDB repository is created for notification persistence and retrieval.
-5. The Notification Service persists `EnrollmentConfirmed` event notifications in MongoDB without using an in-memory collection for notification records, and uses the `eventId` to skip duplicate events (in-memory tracking of processed event IDs is sufficient; restart-safe duplicate detection is out of scope).
-6. A REST API is provided to retrieve all stored notifications, returning notification records as JSON.
+1. A standalone Resource Service is created as a module under the LearnSphere parent Maven project (listed in the parent `pom.xml` `<modules>` with its own `pom.xml`).
+2. The Resource Service has its own Spring Boot application class and its own `application.properties` (port and MongoDB database), so it can be started independently.
+3. A MongoDB `Resource` document (`@Document`) and a separate `ResourceDTO` are implemented, and the REST API returns `ResourceDTO`.
+4. `GET /api/resources/{id}` retrieves resource data and uses `@Cacheable` with the resource ID as the cache key.
+5. `PUT /api/resources/{id}` updates the resource and uses `@CacheEvict` with the resource ID as the key to remove the corresponding cached entry.
+6. Caffeine is configured as the cache provider (`spring.cache.type=caffeine`) for the resource cache with a suitable TTL (for example, `expireAfterWrite` in `spring.cache.caffeine.spec`).

@@ -27,6 +27,9 @@ COPY enrollment-service/src enrollment-service/src
 COPY notification-service/pom.xml notification-service/pom.xml
 COPY notification-service/src notification-service/src
 
+COPY resource-service/pom.xml resource-service/pom.xml
+COPY resource-service/src resource-service/src
+
 # Build all Maven modules
 RUN mvn clean package -DskipTests
 
@@ -111,5 +114,19 @@ WORKDIR /app
 COPY --from=builder /app/notification-service/target/*.jar app.jar
 
 EXPOSE 8084
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+
+# =========================================================
+# RESOURCE SERVICE
+# =========================================================
+FROM eclipse-temurin:25-jre AS resource-service
+
+WORKDIR /app
+
+COPY --from=builder /app/resource-service/target/*.jar app.jar
+
+EXPOSE 8085
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
