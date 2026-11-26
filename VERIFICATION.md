@@ -40,7 +40,9 @@ curl -i -X POST http://localhost:8080/enrollments -H "Content-Type: application/
 
 ```bash
 docker compose logs notification-service
-docker compose exec mongodb mongosh notificationdb --eval "db.notifications.find()"
+docker compose exec mongodb mongosh
+# then: use notificationdb
+#       db.notifications.find()
 ```
 
 **Expected:** log line `Enrollment confirmed successfully for Learner 101 for Course 201.`; one document with the same `eventId`, `enrollmentId`, `learnerId`, `courseId`.
@@ -54,11 +56,10 @@ docker compose exec mongodb mongosh notificationdb --eval "db.notifications.find
 ## 4. Retrieve Notifications
 
 ```bash
-curl http://localhost:8080/notifications
-curl http://localhost:8080/notifications/<id>
+curl http://localhost:8084/notifications
 ```
 
-**Expected:** JSON list containing the notification; JSON for the requested notification; data matches the event.
+**Expected:** JSON list containing the notification; data matches the event.
 
 **Observed result:**
 
@@ -70,7 +71,7 @@ curl http://localhost:8080/notifications/<id>
 
 ```bash
 curl -X POST http://localhost:8080/enrollments/1/duplicate-notification
-curl http://localhost:8080/notifications
+curl http://localhost:8084/notifications
 docker compose logs notification-service
 ```
 

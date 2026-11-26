@@ -15,9 +15,14 @@ public class NotificationConsumer {
         this.notificationService = notificationService;
     }
 
-    // Listens for EnrollmentConfirmed events published by Enrollment Service
     @RabbitListener(queues = RabbitMQConfig.QUEUE)
     public void receiveEnrollmentConfirmed(EnrollmentConfirmed event) {
-        notificationService.processEnrollmentConfirmed(event);
+
+        System.out.println("Received EnrollmentConfirmed event: " + event.getEventId());
+
+        // Pass the received event to the service layer.
+        if (notificationService.saveNotification(event)) {
+            System.out.println("Notification saved to MongoDB");
+        }
     }
 }

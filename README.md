@@ -93,8 +93,6 @@ When the Notification Service receives an `EnrollmentConfirmed` event:
 
 If the same event is received again, it must not create another notification record.
 
-The duplicate check may keep the approach from the previous sprint, or check the stored notification records, for example with a repository method such as `existsByEventId(eventId)`.
-
 The flow should be:
 
 ```text
@@ -126,10 +124,9 @@ Provide a REST API to retrieve the notification records stored in MongoDB.
 
 Create a REST controller that provides an API similar to:
 
-| HTTP Method | Endpoint              | Purpose                           |
-| ----------- | --------------------- | --------------------------------- |
-| `GET`       | `/notifications`      | Retrieve all stored notifications |
-| `GET`       | `/notifications/{id}` | Retrieve a notification by ID     |
+| HTTP Method | Endpoint         | Purpose                           |
+| ----------- | ---------------- | --------------------------------- |
+| `GET`       | `/notifications` | Retrieve all stored notifications |
 
 The API must:
 
@@ -155,7 +152,6 @@ Verify the following scenarios:
 | New enrollment            | Confirm an enrollment                   | `EnrollmentConfirmed` event is published    |
 | Event processing          | Notification Service consumes the event | Notification record is stored in MongoDB    |
 | Retrieve notifications    | `GET /notifications`                    | Stored notification records are returned    |
-| Retrieve one notification | `GET /notifications/{id}`               | Requested notification is returned          |
 | Duplicate event           | Process the same `eventId` again        | No duplicate notification record is created |
 
 Verify that the notification data returned by the REST API matches the information from the processed enrollment event.
@@ -187,7 +183,14 @@ Expected: `201 Created` with the saved enrollment (note its `id`).
 
 ```bash
 docker compose logs notification-service
-docker compose exec mongodb mongosh notificationdb --eval "db.notifications.find()"
+docker compose exec mongodb mongosh
+```
+
+In the MongoDB shell:
+
+```text
+use notificationdb
+db.notifications.find()
 ```
 
 Expected: the log shows `Enrollment confirmed successfully for Learner 101 for Course 201.`, and one document exists in the `notifications` collection with the same `eventId`, `enrollmentId`, `learnerId` and `courseId`.
@@ -195,11 +198,10 @@ Expected: the log shows `Enrollment confirmed successfully for Learner 101 for C
 **4. Retrieve notifications through the REST API**
 
 ```bash
-curl http://localhost:8080/notifications
-curl http://localhost:8080/notifications/<id>
+curl http://localhost:8084/notifications
 ```
 
-Expected: the list contains the stored notification, and the second call returns the notification with that `id`. The returned data matches the enrollment event.
+Expected: the JSON list contains the stored notification, and its data matches the enrollment event.
 
 **5. Duplicate event**
 
@@ -207,7 +209,7 @@ Publish the same event (same `eventId`) again, for example using the duplicate-d
 
 ```bash
 curl -X POST http://localhost:8080/enrollments/1/duplicate-notification
-curl http://localhost:8080/notifications
+curl http://localhost:8084/notifications
 ```
 
 Expected: only **one** new notification record is stored for that `eventId`, and the log shows `Duplicate event ignored: <eventId>`.
@@ -318,9 +320,9 @@ To build and launch the entire microservice ecosystem along with RabbitMQ and Mo
    docker compose ps
    ```
 
-3. **Verify notifications via API Gateway:**
+3. **Verify stored notifications from the Notification Service:**
    ```bash
-   curl http://localhost:8080/notifications
+   curl http://localhost:8084/notifications
    ```
 
 4. **Stop all services:**
@@ -337,4 +339,4 @@ To build and launch the entire microservice ecosystem along with RabbitMQ and Mo
 3. A Notification document is implemented with appropriate notification and event information, including the `eventId` of the processed `EnrollmentConfirmed` event.
 4. A Spring Data MongoDB repository is created for notification persistence and retrieval.
 5. The Notification Service persists `EnrollmentConfirmed` event notifications in MongoDB without using an in-memory collection for notification records.
-6. REST APIs are provided to retrieve all notifications and an individual notification, returning notification records as JSON.
+6. A REST API is provided to retrieve all stored notifications, returning notification records as JSON.
