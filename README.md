@@ -22,7 +22,7 @@ Dockerize the complete LearnSphere microservices platform and configure RabbitMQ
 
 ### Requirements
 
-* Create a single root `Dockerfile` to build all Maven modules and provide dedicated target stages for each service:
+* Create a single root `Dockerfile` to build all Maven modules and provide dedicated target stages for each service. Use Java 25 images that match the project toolchain (Java 25, Spring Boot 4.1.1, Spring Cloud 2025.1.x), for example `maven:3.9.16-eclipse-temurin-25` for the build stage and `eclipse-temurin:25-jre` for the service stages:
   * `discovery-server`
   * `api-gateway`
   * `course-service`
@@ -373,7 +373,7 @@ The Enrollment Service publishes an `EnrollmentConfirmed` event without knowing 
 
 ## Evaluation Criteria
 
-1. The complete LearnSphere application suite and RabbitMQ are dockerized and orchestrated using Docker Compose.
+1. A root multi-stage `Dockerfile` with a target stage for each service and a `docker-compose.yml` defining all LearnSphere services and RabbitMQ (`rabbitmq:4-management` with healthcheck, Eureka and RabbitMQ environment variables, and `depends_on` rules) are provided.
 2. An `EnrollmentConfirmed` event is created with a unique `eventId` and relevant enrollment information.
 3. Enrollment Service publishes the `EnrollmentConfirmed` event to RabbitMQ when an enrollment is confirmed.
 4. Notification Service is configured to consume `EnrollmentConfirmed` events from RabbitMQ.
