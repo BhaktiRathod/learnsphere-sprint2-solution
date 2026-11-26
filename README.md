@@ -99,7 +99,6 @@ Configure a suitable timeout for requests from the Enrollment Service to the Cou
 
 The Enrollment Service must:
 
-* Configure a connection timeout for the downstream request.
 * Configure a response/read timeout.
 * Apply the timeout configuration to requests made to the Course Service.
 * Avoid allowing a downstream request to wait indefinitely.
@@ -149,7 +148,6 @@ Test the following scenarios:
 | Course available           | Request an existing course through Enrollment Service | Course information is returned                    |
 | Course not found           | Request a non-existing course                         | Appropriate error response is returned            |
 | Course Service unavailable | Stop the Course Service and send the request          | Enrollment Service handles the failure gracefully |
-| Course Service timeout     | Make the Course Service exceed the configured timeout | Enrollment Service returns an appropriate error response |
 | Course Service restored    | Start the Course Service again and retry              | Course information is retrieved successfully      |
 
 Verify that the Enrollment Service remains running in all failure scenarios.
@@ -162,7 +160,7 @@ Verify that the Enrollment Service remains running in all failure scenarios.
 * Course Service must be resolved using **Eureka service discovery**.
 * A fixed Course Service hostname or port must not be used.
 * The Enrollment Service must use synchronous REST communication.
-* A connection timeout and response/read timeout must be configured.
+* A response/read timeout must be configured.
 * Downstream communication failures must be handled gracefully.
 * The Enrollment Service must not crash when the Course Service is unavailable or times out.
 * The existing Eureka Server must be used for service discovery.
@@ -236,5 +234,5 @@ The Enrollment Service uses **RestClient** to make a synchronous request. Eureka
 2. Course Service is resolved through Eureka service discovery.
 3. No fixed Course Service hostname or port is used for the downstream request.
 4. The Enrollment Service exposes an endpoint that triggers the Course Service request.
-5. Connection and response/read timeouts are configured for the downstream request.
+5. A response/read timeout is configured for the downstream request.
 6. Course Service unavailability and downstream failures are handled gracefully with meaningful error responses to the client.
