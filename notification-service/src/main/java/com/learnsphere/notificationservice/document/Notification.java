@@ -1,7 +1,6 @@
 package com.learnsphere.notificationservice.document;
 
 import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
@@ -14,8 +13,6 @@ public class Notification {
     private String id;
 
     // eventId of the processed EnrollmentConfirmed event.
-    // Database-level unique index: MongoDB rejects a second document with the same eventId.
-    @Indexed(unique = true)
     private String eventId;
 
     private Long enrollmentId;

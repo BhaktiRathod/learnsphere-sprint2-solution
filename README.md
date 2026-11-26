@@ -93,7 +93,9 @@ When the Notification Service receives an `EnrollmentConfirmed` event:
 
 If the same event is received again, it must not create another notification record.
 
-Keeping the in-memory duplicate check from the previous sprint is acceptable for this practice. Checking the stored notifications in MongoDB, so that duplicates are also detected after a Notification Service restart, is optional.
+Tracking processed event IDs in memory, as in the previous sprint, is sufficient for this practice.
+
+> **Scope:** Restart-safe duplicate detection (for example, querying MongoDB by `eventId` or adding a unique index on `eventId`) is **out of scope** for this practice.
 
 The flow should be:
 
@@ -235,6 +237,7 @@ docker compose down
 * The existing RabbitMQ-based event communication must be retained.
 * The Notification Service must maintain the idempotent behavior established in the previous sprint.
 * Duplicate `EnrollmentConfirmed` events must not create duplicate notification records.
+* Processed event IDs may be tracked in memory; restart-safe duplicate detection and a unique index on `eventId` are out of scope.
 * Notification records must be retrievable through a REST API.
 * Other LearnSphere services must not directly access the Notification Service's MongoDB database.
 
@@ -336,9 +339,9 @@ To build and launch the entire microservice ecosystem along with RabbitMQ and Mo
 
 ## Evaluation Criteria
 
-1. MongoDB (`mongo:8.0`) and RabbitMQ are defined as Docker services with healthchecks in `docker-compose.yml`, and the complete LearnSphere platform is orchestrated with Docker Compose using the root multi-stage `Dockerfile`.
+1. MongoDB (`mongo:8.0`) and RabbitMQ are defined as Docker services with healthchecks in `docker-compose.yml`, and the complete LearnSphere platform is orchestrated with Docker Compose using the root multi-stage `Dockerfile` (`depends_on` with `service_started` or `service_healthy` is acceptable).
 2. The Notification Service is configured to use Spring Data MongoDB for persistence (`spring-boot-starter-data-mongodb` dependency and MongoDB connection URI).
 3. A Notification document is implemented with appropriate notification and event information, including the `eventId` of the processed `EnrollmentConfirmed` event.
 4. A Spring Data MongoDB repository is created for notification persistence and retrieval.
-5. The Notification Service persists `EnrollmentConfirmed` event notifications in MongoDB without using an in-memory collection for notification records.
+5. The Notification Service persists `EnrollmentConfirmed` event notifications in MongoDB without using an in-memory collection for notification records, and uses the `eventId` to skip duplicate events (in-memory tracking of processed event IDs is sufficient; restart-safe duplicate detection is out of scope).
 6. A REST API is provided to retrieve all stored notifications, returning notification records as JSON.
