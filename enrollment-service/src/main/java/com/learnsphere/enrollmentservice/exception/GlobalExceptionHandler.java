@@ -20,6 +20,17 @@ public class GlobalExceptionHandler {
                 .body(problemDetail);
     }
 
+    @ExceptionHandler(EnrollmentNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleEnrollmentNotFound(EnrollmentNotFoundException ex) {
+        ProblemDetail problemDetail = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        problemDetail.setTitle("Enrollment Not Found");
+        problemDetail.setDetail(ex.getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(problemDetail);
+    }
+
     @ExceptionHandler(CourseServiceUnavailableException.class)
     public ResponseEntity<ProblemDetail> handleCourseServiceUnavailable(CourseServiceUnavailableException ex) {
         ProblemDetail problemDetail = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);

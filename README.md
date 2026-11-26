@@ -1,171 +1,219 @@
-# Practice: Implement Synchronous Service Communication
+# Practice: Implement Asynchronous Service Communication
 
 ## Problem Statement
 
-Enhance the **LearnSphere** microservices architecture by enabling the **Enrollment Service** to communicate synchronously with the **Course Service**.
+Enhance the **LearnSphere** microservices architecture by introducing **asynchronous, event-driven communication** between the **Enrollment Service** and the **Notification Service**.
 
-When the Enrollment Service needs course information, it must make a REST call to the Course Service using Spring's **RestClient**. The Course Service must be located through **Eureka service discovery** rather than using a fixed hostname or port.
+When an enrollment is confirmed, the Enrollment Service must publish an `EnrollmentConfirmed` event to **RabbitMQ**. The Notification Service must consume this event and process it by sending a simple enrollment confirmation notification.
 
-The Enrollment Service must also handle communication failures gracefully. If the Course Service is unavailable or does not respond within the configured timeout, the Enrollment Service should return an appropriate response instead of crashing.
+The Enrollment Service must not directly call the Notification Service. RabbitMQ must act as the communication channel between the two services.
 
----
+The Notification Service must also handle duplicate events safely so that processing the same event more than once does not result in duplicate notifications.
 
-## Task-1: Configure RestClient in the Enrollment Service
-
-### Task
-
-Configure the Enrollment Service to use Spring's RestClient for synchronous REST communication.
-
-### Requirements
-
-The Enrollment Service must:
-
-* Include the required Spring Web dependency.
-* Create and configure a `RestClient`.
-* Use the `RestClient` to make synchronous HTTP requests.
-* Keep the REST communication logic in an appropriate service component.
-* Not use `WebClient` or `RestTemplate` for this practice.
+The entire LearnSphere application along with RabbitMQ must be dockerized and run using **Docker**.
 
 ---
 
-## Task-2: Discover the Course Service Using Eureka
+## Task-1: Dockerize the LearnSphere Application and Configure RabbitMQ
 
 ### Task
 
-Configure the Enrollment Service to locate the Course Service through Eureka service discovery.
+Dockerize the complete LearnSphere microservices platform and configure RabbitMQ as the messaging broker using Docker Compose.
 
 ### Requirements
 
+* Create a single root `Dockerfile` to build all Maven modules and provide dedicated target stages for each service:
+  * `discovery-server`
+  * `api-gateway`
+  * `course-service`
+  * `learner-service`
+  * `enrollment-service`
+  * `notification-service`
+* Create a `docker-compose.yml` to orchestrate all LearnSphere microservices and RabbitMQ.
+* Configure RabbitMQ as a Docker service:
+  * Use the official `rabbitmq:4-management` image with the management interface.
+  * Expose the RabbitMQ messaging port (`5672`) and management dashboard port (`15672`).
+  * Configure default credentials (`guest`/`guest`) and container healthcheck.
+* Configure environment variables and service dependencies:
+  * Set `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/` for all services.
+  * Configure Enrollment and Notification services to connect to RabbitMQ using host `rabbitmq` and port `5672`.
+  * Configure `depends_on` rules so dependent services wait for `discovery-server` and `rabbitmq`.
+* Verify that all services and RabbitMQ build and start successfully using Docker Compose.
+
+---
+
+## Task-2: Create and Publish the EnrollmentConfirmed Event
+
+### Task
+
+Create an event that represents a successfully confirmed enrollment and publish it from the Enrollment Service.
+
+### Requirements
+
+Create an `EnrollmentConfirmed` event containing appropriate information, such as:
+
+* `eventId`
+* `enrollmentId`
+* `learnerId`
+* `courseId`
+
 The Enrollment Service must:
 
-* Be configured as a Eureka client.
-* Use the registered Course Service name to identify the downstream service.
-* Resolve the Course Service through Eureka.
-* Not use a fixed hostname or port for the Course Service.
-* Use a load-balanced service URL when creating the request.
+* Create the event when an enrollment is confirmed.
+* Publish the event to RabbitMQ.
+* Use an appropriate exchange and routing key.
+* Serialize the event into a message format suitable for transmission.
+* Not directly call the Notification Service.
 
-The request should follow the service-discovery-based approach:
+The communication must follow:
 
 ```text
 Enrollment Service
         │
+        │ Publish EnrollmentConfirmed
         ▼
-     Eureka
-        │
-        ▼
-  Course Service
+     RabbitMQ
 ```
 
 ---
 
-## Task-3: Retrieve Course Information from Enrollment Service
+## Task-3: Consume the Event in Notification Service
 
 ### Task
 
-Add functionality in the Enrollment Service to retrieve course information from the Course Service.
+Configure the Notification Service to consume `EnrollmentConfirmed` events from RabbitMQ.
 
 ### Requirements
 
-The Enrollment Service must:
+The Notification Service must:
 
-* Accept a course ID as part of an enrollment-related request.
-* Use RestClient to request the corresponding course from the Course Service.
-* Retrieve the course information from the downstream response.
-* Use the retrieved Course information as part of the Enrollment Service response.
+* Connect to RabbitMQ.
+* Configure the required exchange, queue, and binding.
+* Listen for `EnrollmentConfirmed` events.
+* Deserialize the received event.
+* Process the event after receiving it.
+
+The communication must follow:
+
+```text
+     RabbitMQ
+        │
+        │ EnrollmentConfirmed
+        ▼
+Notification Service
+```
+
+The Notification Service must not require a direct REST call from the Enrollment Service.
+
+---
+
+## Task-4: Process the Enrollment Confirmation
+
+### Task
+
+Process the `EnrollmentConfirmed` event and send a simple enrollment confirmation notification.
+
+### Requirements
+
+When an `EnrollmentConfirmed` event is received, the Notification Service must:
+
+* Extract the relevant enrollment information from the event.
+* Create a simple confirmation notification.
+* Process or record the notification.
+* Ensure that the notification is produced as a result of consuming the event.
 
 For example:
 
-| HTTP Method | Endpoint                         | Purpose                                                   |
-| ----------- | -------------------------------- | --------------------------------------------------------- |
-| `GET`       | `/enrollments/course/{courseId}` | Retrieve course information through the Enrollment Service |
-
-A request such as:
-
-```http
-GET /enrollments/course/101
+```text
+Enrollment confirmed successfully for Learner 101
+for Course 201.
 ```
 
-should cause the Enrollment Service to retrieve Course `101` from the Course Service.
+The notification may be represented as a log message or stored using a simple implementation appropriate for the exercise.
 
 ---
 
-## Task-4: Configure a Downstream Timeout
+## Task-5: Make the Notification Consumer Idempotent
 
 ### Task
 
-Configure a suitable timeout for requests from the Enrollment Service to the Course Service.
+Ensure that processing the same `EnrollmentConfirmed` event multiple times does not create duplicate notifications.
 
 ### Requirements
 
-The Enrollment Service must:
+The `EnrollmentConfirmed` event must contain a unique `eventId`.
 
-* Configure a response/read timeout.
-* Apply the timeout configuration to requests made to the Course Service.
-* Avoid allowing a downstream request to wait indefinitely.
+The Notification Service must:
 
-The timeout values may be chosen appropriately for the application.
+* Use the `eventId` to identify an already processed event.
+* Check whether the event has already been processed before creating a notification.
+* Process a new event only once.
+* Ignore a duplicate event without creating another notification.
+
+For example:
+
+```text
+Event received
+     │
+     ▼
+Is eventId already processed?
+     │
+   ┌─┴─┐
+  No  Yes
+  │    │
+  ▼    ▼
+Process Ignore
+  │
+  ▼
+Record eventId
+```
 
 ---
 
-## Task-5: Handle Downstream Failures Gracefully
+## Task-6: Verify Asynchronous Communication
 
 ### Task
 
-Handle situations where the Course Service cannot successfully respond to the Enrollment Service.
+Verify the complete asynchronous communication flow between the Enrollment and Notification services.
 
 ### Requirements
 
-The Enrollment Service must handle scenarios such as:
+Start the following components:
 
-* Course Service is unavailable.
-* Course Service cannot be reached.
-* Course Service does not respond within the configured timeout.
-* Course Service returns an unsuccessful HTTP response.
+```text
+RabbitMQ
+Enrollment Service
+Notification Service
+```
 
-When a downstream failure occurs:
+Verify the following scenarios:
 
-* The exception must be handled by the Enrollment Service.
-* The application must not crash.
-* The client must receive an appropriate HTTP status.
-* The response should contain a meaningful error message.
+| Scenario                         | Action                                         | Expected Result                                             |
+| -------------------------------- | ---------------------------------------------- | ----------------------------------------------------------- |
+| Enrollment confirmed             | Confirm an enrollment                          | `EnrollmentConfirmed` event is published                    |
+| Event available                  | Check RabbitMQ                                 | Message is delivered to the Notification Service            |
+| Notification processing          | Notification Service consumes the event        | Enrollment confirmation notification is produced            |
+| Duplicate event                  | Deliver the same `eventId` again               | No duplicate notification is produced                       |
+| Notification Service unavailable | Publish an event while consumer is unavailable | Message remains available in RabbitMQ for later consumption |
+| Notification Service restored    | Start the Notification Service again           | Pending event is consumed and processed                     |
 
-The exact error response format may vary, but it must clearly indicate that the Course Service could not be reached or did not respond successfully.
-
----
-
-## Task-6: Verify Synchronous Communication
-
-### Task
-
-Verify successful and failure scenarios using the Enrollment and Course services.
-
-### Requirements
-
-Test the following scenarios:
-
-| Scenario                   | Action                                                | Expected Result                                   |
-| -------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| Course available           | Request an existing course through Enrollment Service | Course information is returned                    |
-| Course not found           | Request a non-existing course                         | Appropriate error response is returned            |
-| Course Service unavailable | Stop the Course Service and send the request          | Enrollment Service handles the failure gracefully |
-| Course Service restored    | Start the Course Service again and retry              | Course information is retrieved successfully      |
-
-Verify that the Enrollment Service remains running in all failure scenarios.
+Verify that the Enrollment Service does not make a direct REST call to the Notification Service.
 
 ---
 
 ## Constraints
 
-* Communication from Enrollment Service to Course Service must use **RestClient**.
-* Course Service must be resolved using **Eureka service discovery**.
-* A fixed Course Service hostname or port must not be used.
-* The Enrollment Service must use synchronous REST communication.
-* A response/read timeout must be configured.
-* Downstream communication failures must be handled gracefully.
-* The Enrollment Service must not crash when the Course Service is unavailable or times out.
-* The existing Eureka Server must be used for service discovery.
-* The Course Service must remain independently bootable.
-* The Enrollment Service must remain independently bootable.
+* RabbitMQ must be used as the message broker.
+* RabbitMQ must be configured and run using Docker, with a root multi-stage `Dockerfile` and `docker-compose.yml` configured to dockerize the complete application.
+* The Enrollment Service must publish an `EnrollmentConfirmed` event.
+* The Notification Service must consume the `EnrollmentConfirmed` event.
+* The Enrollment Service must not directly call the Notification Service.
+* Communication between Enrollment and Notification must occur through RabbitMQ.
+* The event must contain a unique `eventId`.
+* The Notification consumer must be idempotent.
+* Duplicate events must not result in duplicate notifications.
+* The asynchronous communication must be independently verifiable.
+* The Enrollment and Notification services must remain independently bootable.
 
 ---
 
@@ -174,6 +222,9 @@ Verify that the Enrollment Service remains running in all failure scenarios.
 ```text
 learnsphere/
 ├── pom.xml
+│
+├── Dockerfile
+├── docker-compose.yml
 │
 ├── discovery-server/
 │   └── ...
@@ -195,12 +246,21 @@ learnsphere/
 │           │   ├── EnrollmentServiceApplication.java
 │           │   ├── EnrollmentController.java
 │           │   ├── EnrollmentService.java
-│           │   └── CourseClient.java
+│           │   └── EnrollmentConfirmed.java
 │           └── resources/
 │               └── application.properties
 │
 ├── notification-service/
-│   └── ...
+│   ├── pom.xml
+│   └── src/
+│       └── main/
+│           ├── java/
+│           │   ├── NotificationServiceApplication.java
+│           │   ├── NotificationConsumer.java
+│           │   ├── NotificationService.java
+│           │   └── EnrollmentConfirmed.java
+│           └── resources/
+│               └── application.properties
 │
 └── README.md
 ```
@@ -210,29 +270,31 @@ learnsphere/
 ## Architecture
 
 ```text
-                         Client
+                    Enrollment Service
+                           │
+                           │ Publish Event
+                           ▼
+                    ┌─────────────┐
+                    │  RabbitMQ   │
+                    └──────┬──────┘
+                           │
+                           │ Consume Event
+                           ▼
+                  Notification Service
                            │
                            ▼
-                  Enrollment Service
-                           │
-                        RestClient
-                           │
-                           ▼
-                       Eureka
-                           │
-                           ▼
-                    Course Service
+                  Confirmation Notification
 ```
 
-The Enrollment Service uses **RestClient** to make a synchronous request. Eureka is used to discover the Course Service instead of relying on a fixed host or port.
+The Enrollment Service publishes an `EnrollmentConfirmed` event without knowing about the Notification Service. RabbitMQ delivers the event to the Notification Service, which consumes and processes it independently.
 
 ---
 
 ## Evaluation Criteria
 
-1. RestClient is configured and used by the Enrollment Service for synchronous REST communication.
-2. Course Service is resolved through Eureka service discovery.
-3. No fixed Course Service hostname or port is used for the downstream request.
-4. The Enrollment Service exposes an endpoint that triggers the Course Service request.
-5. A response/read timeout is configured for the downstream request.
-6. Course Service unavailability and downstream failures are handled gracefully with meaningful error responses to the client.
+1. The complete LearnSphere application suite and RabbitMQ are dockerized and orchestrated using Docker Compose.
+2. An `EnrollmentConfirmed` event is created with a unique `eventId` and relevant enrollment information.
+3. Enrollment Service publishes the `EnrollmentConfirmed` event to RabbitMQ when an enrollment is confirmed.
+4. Notification Service is configured to consume `EnrollmentConfirmed` events from RabbitMQ.
+5. Enrollment Service does not directly call Notification Service; RabbitMQ is used as the communication channel between the two services.
+6. Notification Service uses the event ID to prevent duplicate processing of the same event.
