@@ -25,27 +25,31 @@ public class NotificationService {
                 throw new IllegalArgumentException("Event ID cannot be null");
             }
 
+            // Atomic check-and-record: add() returns false if the eventId is already present.
             // If the same event is received again, skip it.
-            if (processedEventIds.contains(eventId)) {
+            if (!processedEventIds.add(eventId)) {
 
                 System.out.println("Duplicate event ignored: " + eventId);
 
                 return false;
             }
 
-            System.out.println("EnrollmentConfirmed event received");
-            System.out.println("Event ID: " + eventId);
-            System.out.println("Enrollment ID: " + event.getEnrollmentId());
-            System.out.println(
-                    "Enrollment confirmed successfully for Learner "
-                            + event.getLearnerId()
-                            + " for Course "
-                            + event.getCourseId()
-                            + "."
-            );
-
-            // Mark the event as processed only after successful processing.
-            processedEventIds.add(eventId);
+            try {
+                System.out.println("EnrollmentConfirmed event received");
+                System.out.println("Event ID: " + eventId);
+                System.out.println("Enrollment ID: " + event.getEnrollmentId());
+                System.out.println(
+                        "Enrollment confirmed successfully for Learner "
+                                + event.getLearnerId()
+                                + " for Course "
+                                + event.getCourseId()
+                                + "."
+                );
+            } catch (RuntimeException processingFailure) {
+                // Processing failed: forget the eventId so a redelivery can be processed.
+                processedEventIds.remove(eventId);
+                throw processingFailure;
+            }
 
             return true;
 

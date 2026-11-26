@@ -36,9 +36,10 @@ Dockerize the complete LearnSphere microservices platform and configure RabbitMQ
   * Configure default credentials (`guest`/`guest`) and container healthcheck.
 * Configure environment variables and service dependencies:
   * Set `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/` for all services.
+  * Set `EUREKA_INSTANCE_PREFER_IP_ADDRESS=true` for all Eureka clients so services register with a container-reachable address.
   * Configure Enrollment and Notification services to connect to RabbitMQ using host `rabbitmq` and port `5672`.
   * Configure `depends_on` rules so dependent services wait for `discovery-server` and `rabbitmq`.
-* Verify that all services and RabbitMQ build and start successfully using Docker Compose.
+* Verify that all services and RabbitMQ build and start successfully using Docker Compose, and record the result (`docker compose ps` output) in `VERIFICATION.md`.
 
 ---
 
@@ -168,6 +169,9 @@ Process Ignore
 Record eventId
 ```
 
+* Check and record the `eventId` in one step, for example by using the boolean result of `Set.add(eventId)`: it returns `false` when the `eventId` was already processed.
+* An in-memory collection of processed `eventId`s is sufficient for this practice. Restart-safe (persistent) duplicate tracking is out of scope.
+
 ---
 
 ## Task-6: Verify Asynchronous Communication
@@ -198,6 +202,13 @@ Verify the following scenarios:
 | Notification Service restored    | Start the Notification Service again           | Pending event is consumed and processed                     |
 
 Verify that the Enrollment Service does not make a direct REST call to the Notification Service.
+
+#### Record the Verification Evidence
+
+Create a `VERIFICATION.md` file in the project root. For each scenario above, record:
+
+* The command or request you ran (for example, the `curl` or Postman request, or `docker compose stop notification-service`).
+* The result you observed: the HTTP response, the relevant Notification Service log lines (`docker compose logs notification-service`), and the RabbitMQ queue **Ready** count from the management UI (`http://localhost:15672`).
 
 ---
 
@@ -262,6 +273,7 @@ learnsphere/
 │           └── resources/
 │               └── application.properties
 │
+├── VERIFICATION.md
 └── README.md
 ```
 
@@ -297,4 +309,4 @@ The Enrollment Service publishes an `EnrollmentConfirmed` event without knowing 
 3. Enrollment Service publishes the `EnrollmentConfirmed` event to RabbitMQ when an enrollment is confirmed.
 4. Notification Service is configured to consume `EnrollmentConfirmed` events from RabbitMQ.
 5. Enrollment Service does not directly call Notification Service; RabbitMQ is used as the communication channel between the two services.
-6. Notification Service uses the event ID to prevent duplicate processing of the same event.
+6. Notification Service uses the event ID to prevent duplicate processing of the same event (in-memory tracking is sufficient).
