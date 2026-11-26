@@ -130,7 +130,7 @@ services:
       rabbitmq:
         condition: service_healthy
       mongodb:
-        condition: service_started
+        condition: service_healthy
       discovery-server:
         condition: service_started
 

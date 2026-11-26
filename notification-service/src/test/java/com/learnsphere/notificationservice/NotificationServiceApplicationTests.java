@@ -13,22 +13,25 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
         "eureka.client.enabled=false",
-        "spring.rabbitmq.listener.simple.auto-startup=false"
+        "spring.rabbitmq.listener.simple.auto-startup=false",
+        "spring.data.mongodb.auto-index-creation=false"
 })
 class NotificationServiceApplicationTests {
 
@@ -66,17 +69,32 @@ class NotificationServiceApplicationTests {
     }
 
     @Test
-    @DisplayName("The same eventId received again does not create another notification record")
+    @DisplayName("An eventId already stored in MongoDB is ignored, even after a restart (no duplicate record)")
     void testDuplicateEventIsNotSavedAgain() {
         NotificationRepository repository = mock(NotificationRepository.class);
-        NotificationServiceImpl service = new NotificationServiceImpl(repository);
+        Notification existing = new Notification("event-dup", 2L, 102L, 202L, "msg");
+        when(repository.findByEventId("event-dup")).thenReturn(Optional.of(existing));
 
-        boolean first = service.saveNotification(new EnrollmentConfirmed("event-dup", 2L, 102L, 202L));
-        boolean second = service.saveNotification(new EnrollmentConfirmed("event-dup", 2L, 102L, 202L));
+        // A new service instance simulates a restarted Notification Service.
+        boolean saved = new NotificationServiceImpl(repository)
+                .saveNotification(new EnrollmentConfirmed("event-dup", 2L, 102L, 202L));
 
-        assertThat(first).isTrue();
-        assertThat(second).isFalse();
-        verify(repository, times(1)).save(any(Notification.class));
+        assertThat(saved).isFalse();
+        verify(repository, never()).save(any(Notification.class));
+    }
+
+    @Test
+    @DisplayName("A duplicate rejected by the unique eventId index is ignored safely")
+    void testDuplicateKeyRaceIsIgnored() {
+        NotificationRepository repository = mock(NotificationRepository.class);
+        when(repository.findByEventId("event-race")).thenReturn(Optional.empty());
+        when(repository.save(any(Notification.class)))
+                .thenThrow(new DuplicateKeyException("E11000 duplicate key error"));
+
+        boolean saved = new NotificationServiceImpl(repository)
+                .saveNotification(new EnrollmentConfirmed("event-race", 4L, 104L, 204L));
+
+        assertThat(saved).isFalse();
     }
 
     @Test

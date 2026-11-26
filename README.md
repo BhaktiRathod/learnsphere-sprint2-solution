@@ -93,6 +93,8 @@ When the Notification Service receives an `EnrollmentConfirmed` event:
 
 If the same event is received again, it must not create another notification record.
 
+Keeping the in-memory duplicate check from the previous sprint is acceptable for this practice. Checking the stored notifications in MongoDB, so that duplicates are also detected after a Notification Service restart, is optional.
+
 The flow should be:
 
 ```text
