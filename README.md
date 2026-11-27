@@ -286,9 +286,8 @@ Span ID        → Identifies an individual operation
 
 ## Evaluation Criteria
 
-1. The API Gateway accepts the `X-Correlation-ID` header from the incoming request, or generates a new correlation ID when it is missing, and forwards it downstream.
-2. The Enrollment and Course services add the received correlation ID to the logging context (MDC) so that it appears in application logs.
-3. The Enrollment Service includes the `X-Correlation-ID` header in its request to the Course Service.
-4. Micrometer Tracing is configured (tracing dependency and sampling probability) to generate trace IDs and span IDs.
-5. The `RestClient` used for the service-to-service call is configured for tracing (observation registry) so that trace information is propagated to the Course Service.
-6. The logging pattern includes the correlation ID, trace ID and span ID.
+1. The API Gateway accepts the `X-Correlation-ID` header, or generates a correlation ID when it is missing, and forwards it to downstream services.
+2. The services add the correlation ID to their application logs.
+3. The correlation ID is passed on when the Enrollment Service calls the Course Service.
+4. Micrometer Tracing is added to the participating services (for example, using the tracing starter shown in class) so that logs include trace IDs and span IDs.
+5. Spring Boot Actuator is included and exposes metrics.
