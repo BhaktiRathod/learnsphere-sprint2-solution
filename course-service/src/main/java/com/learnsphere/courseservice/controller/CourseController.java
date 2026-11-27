@@ -3,6 +3,8 @@ package com.learnsphere.courseservice.controller;
 import com.learnsphere.courseservice.dto.CourseDTO;
 import com.learnsphere.courseservice.service.CourseService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,6 +22,8 @@ import java.util.List;
 @RestController
 @RequestMapping({"/courses", "/api/courses"})
 public class CourseController {
+
+    private static final Logger log = LoggerFactory.getLogger(CourseController.class);
 
     private final CourseService courseService;
 
@@ -58,6 +62,7 @@ public class CourseController {
 
     @GetMapping("/{id}")
     public ResponseEntity<CourseDTO> getCourseById(@PathVariable Long id) {
+        log.info("Course request processed for courseId {}", id);
         return ResponseEntity.ok(courseService.getCourseById(id));
     }
 

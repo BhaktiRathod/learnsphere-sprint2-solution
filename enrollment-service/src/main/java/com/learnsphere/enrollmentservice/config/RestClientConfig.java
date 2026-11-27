@@ -2,6 +2,8 @@ package com.learnsphere.enrollmentservice.config;
 
 import java.time.Duration;
 
+import io.micrometer.observation.ObservationRegistry;
+
 import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,11 +22,15 @@ public class RestClientConfig {
 
     @Bean
     @LoadBalanced
-    public RestClient.Builder loadBalancedRestClientBuilder() {
+    public RestClient.Builder loadBalancedRestClientBuilder(
+            ObservationRegistry observationRegistry) {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
         requestFactory.setReadTimeout(Duration.ofSeconds(3));
 
         return RestClient.builder()
-                .requestFactory(requestFactory);
+                .requestFactory(requestFactory)
+
+                // Enable Micrometer tracing for outgoing RestClient calls.
+                .observationRegistry(observationRegistry);
     }
 }

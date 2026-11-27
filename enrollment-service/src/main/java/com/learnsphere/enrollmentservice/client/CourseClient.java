@@ -5,6 +5,8 @@ import com.learnsphere.enrollmentservice.exception.CourseNotFoundException;
 import com.learnsphere.enrollmentservice.exception.CourseServiceUnavailableException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -14,6 +16,8 @@ import org.springframework.web.client.RestClientException;
 
 @Component
 public class CourseClient {
+
+    private static final Logger log = LoggerFactory.getLogger(CourseClient.class);
 
     private final RestClient restClient;
 
@@ -31,16 +35,20 @@ public class CourseClient {
             name = "courseService",
             fallbackMethod = "courseServiceFallback"
     )
-    public CourseResponseDTO getCourseById(Long courseId) {
+    public CourseResponseDTO getCourseById(Long courseId, String correlationId) {
 
         // Helps observe each actual call/retry to Course Service.
         System.out.println(
                 "Attempting Course Service call for courseId: " + courseId
         );
 
+        log.info("Calling Course Service for courseId {}", courseId);
+
         try {
             return restClient.get()
                     .uri("/courses/{id}", courseId)
+                    // Propagate the same correlation ID to Course Service.
+                    .header("X-Correlation-ID", correlationId)
                     .retrieve()
                     .body(CourseResponseDTO.class);
 
@@ -71,6 +79,7 @@ public class CourseClient {
     // Fallback when the Course Service is unavailable. Does not return or fabricate course data.
     private CourseResponseDTO courseServiceFallback(
             Long courseId,
+            String correlationId,
             CourseServiceUnavailableException ex) {
 
         System.out.println(

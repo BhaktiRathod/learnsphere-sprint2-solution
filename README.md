@@ -1,283 +1,223 @@
-# Practice: Handle Service Failures with Resilience4j
+# Practice: Implement Distributed Logging and Tracing
 
 ## Problem Statement
 
-Enhance the **Enrollment Service** by making its communication with the **Course Service** resilient to temporary downstream failures.
+Enhance the **LearnSphere** microservices architecture by introducing **correlation-ID logging**, **distributed tracing**, and **application metrics**.
 
-The Enrollment Service already uses synchronous communication to retrieve Course information before creating an enrollment. In this practice, you will use **Resilience4j Retry** and **Circuit Breaker** to handle situations where the Course Service is temporarily unavailable.
+A request in a microservices application can travel through multiple services before the operation is completed. The application should provide enough observability information to follow the request across these services and troubleshoot failures.
 
-The Enrollment Service must retry only appropriate downstream availability failures, prevent enrollment creation when Course validation cannot be completed, and return a controlled **503 Service Unavailable** response when the Course Service remains unavailable.
-
-The Circuit Breaker must also expose its state through **Spring Boot Actuator** and log state transitions so that the complete `CLOSED → OPEN → HALF_OPEN → CLOSED` lifecycle can be observed.
+In this practice, you will propagate a correlation ID across service-to-service requests, configure **Micrometer Tracing** to generate and propagate trace IDs and span IDs, include tracing information in application logs, and expose relevant metrics through **Spring Boot Actuator**.
 
 ---
 
-## Task-1: Configure Resilience4j
+## Task-1: Implement Correlation-ID Logging
 
 ### Task
 
-Add and configure Resilience4j in the Enrollment Service.
+Add correlation-ID support across the LearnSphere microservices.
 
 ### Requirements
 
-The Enrollment Service must:
+The application must:
 
-* Include the required Resilience4j dependencies.
-* Configure a Retry instance for Course Service communication.
-* Configure a Circuit Breaker for Course Service communication.
-* Apply the resilience mechanisms to the existing Course Service call.
-* Use appropriate configuration values for retry attempts, wait duration, and Circuit Breaker thresholds.
+* Accept a correlation ID from an incoming request when one is provided.
+* Generate a new correlation ID when the incoming request does not contain one.
+* Include the correlation ID in application logs.
+* Make the correlation ID available throughout the processing of the request.
+* Use the same correlation ID while the request travels across multiple services.
+
+Use a consistent HTTP header for the correlation ID, such as:
+
+```text
+X-Correlation-ID
+```
+
+The API Gateway is the entry point, so it accepts the correlation ID from the client or generates one when it is missing. The downstream services read the correlation ID from the request header and add it to their logging context.
 
 ---
 
-## Task-2: Configure Retry for Course Service Availability Failures
+## Task-2: Propagate the Correlation ID Across Services
 
 ### Task
 
-Configure Retry so that temporary Course Service availability failures are retried.
+Propagate the correlation ID when one LearnSphere service calls another service.
 
 ### Requirements
 
-The Retry configuration must:
+When a service makes an HTTP request to another LearnSphere service:
 
-* Retry only failures that indicate the Course Service is unavailable.
-* Retry communication failures such as connection failures or downstream timeouts.
-* Not retry a `404 Not Found` response from the Course Service.
-* Not retry other failures that represent a valid downstream response.
-* Use a finite maximum number of retry attempts.
-* Use an appropriate wait duration between retry attempts.
+* Include the correlation ID in the outgoing request.
+* Preserve the same correlation ID across the service boundary.
+* Ensure the receiving service uses the propagated correlation ID in its logs.
+* Do not generate a different correlation ID for the same request flow.
 
 For example:
 
 ```text
-Course Service unavailable
-        │
-        ▼
-     Retry
-        │
-   ┌────┴────┐
-   │         │
-Success    Still failing
-   │         │
-   ▼         ▼
-Continue   Circuit Breaker
-```
-
-A missing Course is a valid business response and must not be treated as a temporary availability failure.
-
----
-
-## Task-3: Configure the Circuit Breaker
-
-### Task
-
-Configure a Circuit Breaker to track the relevant Course Service availability failures.
-
-### Requirements
-
-The Circuit Breaker must:
-
-* Track only the failures that represent Course Service availability problems.
-* Not treat a missing Course (`404`) as a Circuit Breaker failure.
-* Open the circuit after the configured failure threshold is reached.
-* Prevent unnecessary downstream calls while the circuit is open.
-* Transition to `HALF_OPEN` after the configured wait duration.
-* Allow trial requests in `HALF_OPEN`.
-* Return to `CLOSED` when the Course Service successfully recovers.
-
-The expected state lifecycle is:
-
-```text
-CLOSED
-   │
-   │ Repeated Course Service failures
-   ▼
- OPEN
-   │
-   │ Wait duration
-   ▼
-HALF_OPEN
-   │
-   │ Successful trial request
-   ▼
- CLOSED
+Client
+  │
+  │ X-Correlation-ID
+  ▼
+API Gateway
+  │
+  │ X-Correlation-ID
+  ▼
+Enrollment Service
+  │
+  │ X-Correlation-ID
+  ▼
+Course Service
 ```
 
 ---
 
-## Task-4: Prevent Enrollment Creation During Course Service Failure
+## Task-3: Configure Micrometer Tracing
 
 ### Task
 
-Ensure that an enrollment is created only after the Course Service successfully validates the requested Course.
+Configure distributed tracing using Micrometer Tracing.
 
 ### Requirements
 
-The Enrollment Service must:
+The application must:
 
-* Request the Course information before creating the enrollment.
-* Create the enrollment only when Course validation succeeds.
-* Not create an enrollment when the Course Service is unavailable.
-* Not create an enrollment when the downstream request times out.
-* Not create an enrollment when the Circuit Breaker is open.
-* Not fabricate or substitute Course information when the Course Service cannot be reached.
+* Include the required Micrometer Tracing dependencies.
+* Configure a tracing implementation appropriate for the application.
+* Generate a trace ID for each traced request.
+* Generate span IDs for individual operations within the request.
+* Propagate tracing information across service-to-service requests.
+* Ensure that the same trace ID can be used to follow a request across multiple services.
 
-The enrollment must be persisted only after successful Course validation.
+Configure tracing in the services that make and receive the service-to-service call (Enrollment Service and Course Service). Tracing in the API Gateway is optional. Exporting traces to an external tracing server (for example, Zipkin) is not required.
 
 ---
 
-## Task-5: Configure a Controlled Fallback
+## Task-4: Add Trace and Span Information to Logs
 
 ### Task
 
-Provide a fallback for Course Service availability failures.
+Enhance application logs with distributed tracing information.
 
 ### Requirements
 
-The fallback must:
+Application logs must include:
 
-* Handle failures after Retry and Circuit Breaker processing.
-* Return a controlled `503 Service Unavailable` response.
-* Provide a meaningful error message.
-* Not create an enrollment.
-* Not create or fabricate Course data.
-* Not hide a genuine `404 Course Not Found` response as a `503`.
+* Correlation ID.
+* Trace ID.
+* Span ID.
 
-For example:
-
-```json
-{
-  "status": 503,
-  "message": "Course service is currently unavailable. Please try again later."
-}
-```
-
-The exact response structure may vary, but the response must clearly indicate that the downstream Course Service is unavailable.
-
----
-
-## Task-6: Log Circuit Breaker State Transitions
-
-### Task
-
-Configure logging so that Circuit Breaker state changes can be observed.
-
-### Requirements
-
-The Enrollment Service must log Circuit Breaker state transitions, including transitions such as:
-
-```text
-CLOSED → OPEN
-OPEN → HALF_OPEN
-HALF_OPEN → CLOSED
-```
-
-The logs must make it possible to identify:
-
-* The previous state.
-* The new state.
+Logs should make it possible to identify which service processed each part of a request.
 
 For example:
 
 ```text
-Circuit Breaker State Changed: State transition from CLOSED to OPEN
+correlationId=abc123 traceId=7f8a... spanId=91bc... Enrollment request received
+correlationId=abc123 traceId=7f8a... spanId=42de... Calling Course Service
+correlationId=abc123 traceId=7f8a... spanId=8ac1... Course request processed
 ```
 
-Printing the transition (for example, with `System.out.println`, as shown in class) or using a logger are both acceptable.
+The exact log format may vary, but the required identifiers must be available in the application logs.
 
 ---
 
-## Task-7: Expose Circuit Breaker Health Through Actuator
+## Task-5: Expose Application and Tracing Metrics
 
 ### Task
 
-Expose the Circuit Breaker state through Spring Boot Actuator.
+Expose relevant application and tracing metrics using Spring Boot Actuator.
 
 ### Requirements
 
-The Enrollment Service must:
+The application must:
 
 * Include Spring Boot Actuator.
-* Expose the required Actuator endpoint.
-* Expose Circuit Breaker health information.
-* Allow the current Circuit Breaker state to be observed.
+* Expose the required Actuator endpoints.
+* Expose relevant application metrics.
+* Expose available tracing-related metrics.
+* Allow the metrics to be viewed through an Actuator endpoint.
 
-Verify the Circuit Breaker state using an appropriate Actuator endpoint.
-
-For example:
+Verify the metrics using an appropriate endpoint such as:
 
 ```http
-GET /actuator/health
+GET /actuator/metrics
 ```
 
-The response should provide Circuit Breaker health information when the Circuit Breaker is configured for health monitoring.
+The exact metrics available may depend on the configured tracing and application components.
 
 ---
 
-## Task-8: Verify Circuit Breaker State Transitions
+## Task-6: Verify Distributed Observability
 
 ### Task
 
-Stop and restart the Course Service to observe the Circuit Breaker lifecycle.
+Verify the complete request flow across multiple LearnSphere services.
 
 ### Requirements
 
-Verify the following scenarios:
+Send a request that travels through multiple services and verify:
 
-| Scenario           | Action                                                         | Expected Result                                         |
-| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------- |
-| Normal operation   | Course Service is running and an enrollment is requested       | Course is validated and enrollment is created           |
-| Course unavailable | Stop Course Service and request an enrollment                  | Retry attempts occur and enrollment is not created      |
-| Circuit opens      | Continue sending requests while Course Service is unavailable  | Circuit transitions from `CLOSED` to `OPEN`             |
-| Circuit open       | Send another enrollment request                                | Request fails fast without creating an enrollment       |
-| Half-open          | Wait for the configured open-state duration                    | Circuit transitions to `HALF_OPEN`                      |
-| Recovery           | Restart Course Service and send a trial request                | Course validation succeeds                              |
-| Circuit closes     | Continue sending successful requests                           | Circuit transitions from `HALF_OPEN` to `CLOSED`        |
-| Course not found   | Request an enrollment for a non-existing Course                | `404` is returned without Retry or Circuit Breaker failure |
+| Verification            | Expected Result                                          |
+| ----------------------- | -------------------------------------------------------- |
+| Incoming request        | Correlation ID is created or accepted                    |
+| API Gateway             | Correlation ID is added to the forwarded request         |
+| Downstream request      | Correlation ID and tracing information are propagated    |
+| Enrollment Service logs | Same correlation ID and trace ID are visible             |
+| Course Service logs     | Same correlation ID and trace ID are visible             |
+| Service boundaries      | Different span IDs identify individual operations        |
+| Actuator metrics        | Relevant application/tracing metrics are available       |
+| Complete request flow   | Request can be followed across the participating services |
 
-Verify the Circuit Breaker state using both application logs and Spring Boot Actuator.
+Verify the complete flow using application logs and Spring Boot Actuator.
 
-> **Scope:** These scenarios are for you to observe the behavior while practicing. Submitting captured logs, Actuator output or enrollment counts is not required, and automated integration tests are optional. Evaluation is based on the code and configuration (see Evaluation Criteria).
+> **Scope:** These checks are for you to observe the behavior while practicing. Submitting captured logs or Actuator output is not required. Evaluation is based on the code and configuration (see Evaluation Criteria).
 
 ### Verification Checklist
 
-Start the platform (`docker compose up --build -d`), then send enrollment requests and watch the Enrollment Service logs (`docker compose logs -f enrollment-service`).
+Start the platform (`docker compose up --build -d`) and send a request through the API Gateway:
 
 ```bash
-# Enrollment request (replace 1 with an existing course id)
-curl -X POST http://localhost:8083/enrollments \
+# With your own correlation ID
+curl -X POST http://localhost:8080/enrollments \
   -H "Content-Type: application/json" \
+  -H "X-Correlation-ID: abc123" \
   -d '{"learnerId": 101, "courseId": 1}'
 
-# Circuit Breaker state
-curl http://localhost:8083/actuator/health
+# Without a correlation ID (the API Gateway generates one)
+curl -X POST http://localhost:8080/enrollments \
+  -H "Content-Type: application/json" \
+  -d '{"learnerId": 101, "courseId": 1}'
 ```
 
-| Step | Action | Expected log / response |
-| --- | --- | --- |
-| 1 | Course Service running, send a request | `Attempting Course Service call ...` once; `201 Created` |
-| 2 | Request a non-existing course (for example `courseId: 999999`) | `Attempting ...` once (no retry); `404 Course Not Found` |
-| 3 | `docker compose stop course-service`, send a request | `Attempting ...` 3 times, `Fallback executed ...`; `503`; no enrollment created |
-| 4 | Send more requests | `State transition from CLOSED to OPEN`; health shows `OPEN` |
-| 5 | Send a request while OPEN | No `Attempting` line; immediate `503` |
-| 6 | `docker compose start course-service`, wait for the open-state duration, send requests | `State transition from OPEN to HALF_OPEN`, then `State transition from HALF_OPEN to CLOSED`; `201 Created`; health shows `CLOSED` |
+Check the logs:
+
+```bash
+docker compose logs enrollment-service
+docker compose logs course-service
+```
+
+Expected: the Enrollment Service lines (`Enrollment request received`, `Calling Course Service`) and the Course Service line (`Course request processed`) show the **same** `correlationId` and `traceId`, with **different** `spanId` values.
+
+Check the metrics:
+
+```bash
+curl http://localhost:8083/actuator/metrics
+curl http://localhost:8083/actuator/metrics/http.server.requests
+curl http://localhost:8083/actuator/metrics/http.client.requests
+```
 
 ---
 
 ## Constraints
 
-* Resilience4j must be used for Retry and Circuit Breaker functionality.
-* Retry must apply only to Course Service availability failures.
-* A `404 Not Found` from Course Service must not trigger Retry.
-* A `404 Not Found` from Course Service must not count as a Circuit Breaker failure.
-* The Circuit Breaker must track the relevant downstream availability failures only.
-* Enrollment creation must occur only after successful Course validation.
-* An enrollment must not be created when Course validation cannot be completed.
-* The fallback must return `503 Service Unavailable` for Course Service availability failures.
-* The fallback must not fabricate Course data.
-* Circuit Breaker state transitions must be logged.
-* Circuit Breaker health must be exposed through Spring Boot Actuator.
-* The Circuit Breaker configuration must support the `CLOSED → OPEN → HALF_OPEN → CLOSED` lifecycle (failure threshold, open-state wait duration and half-open trial calls).
+* Correlation IDs must be propagated using a consistent HTTP header.
+* A correlation ID must be generated when an incoming request does not already contain one.
+* The same correlation ID must be propagated across service-to-service requests.
+* Micrometer Tracing must be used for distributed tracing.
+* Trace IDs and span IDs must be generated and propagated across participating services.
+* Application logs must include the correlation ID, trace ID, and span ID.
+* Spring Boot Actuator must be used to expose application and relevant tracing metrics.
+* The implementation must support tracing across multiple LearnSphere services.
+* The existing service communication must continue to work after observability features are added.
 
 ---
 
@@ -300,17 +240,7 @@ learnsphere/
 │   └── ...
 │
 ├── enrollment-service/
-│   ├── pom.xml
-│   └── src/
-│       └── main/
-│           ├── java/
-│           │   ├── EnrollmentServiceApplication.java
-│           │   ├── EnrollmentController.java
-│           │   ├── EnrollmentService.java
-│           │   ├── CourseClient.java
-│           │   └── ...
-│           └── resources/
-│               └── application.properties
+│   └── ...
 │
 ├── notification-service/
 │   └── ...
@@ -321,6 +251,8 @@ learnsphere/
 └── README.md
 ```
 
+The observability configuration should be added to the participating services without changing the existing business-service boundaries.
+
 ---
 
 ## Architecture
@@ -329,35 +261,34 @@ learnsphere/
                          Client
                            │
                            ▼
-                   Enrollment Service
+                    API Gateway
+                           │
+              Correlation ID + Trace
                            │
                            ▼
-                    Resilience4j
-                  ┌────────┴────────┐
-                  │                 │
-                Retry        Circuit Breaker
-                  │                 │
-                  └────────┬────────┘
+                  Enrollment Service
                            │
-                       RestClient
-                           │
-                           ▼
-                      Eureka
+              Correlation ID + Trace
                            │
                            ▼
                     Course Service
 ```
 
-When the Course Service is unavailable, the Enrollment Service retries the appropriate failures. If failures continue, the Circuit Breaker opens and subsequent requests fail without repeatedly calling the unavailable service.
+Each service contributes logs and tracing information to the same request flow.
 
-Once the Course Service recovers, the Circuit Breaker moves through `HALF_OPEN` and, after a successful trial request, returns to `CLOSED`.
+```text
+Correlation ID → Identifies the overall request flow
+Trace ID       → Identifies the distributed trace
+Span ID        → Identifies an individual operation
+```
 
 ---
 
 ## Evaluation Criteria
 
-1. Resilience4j `@Retry` and `@CircuitBreaker` are applied to the Course Service call and configured in `application.properties`.
-2. A Course Service `404 Not Found` is handled separately and is not retried or counted as a Circuit Breaker failure.
-3. The enrollment is saved only after the Course Service call succeeds.
-4. When the Course Service is unavailable or the circuit is open, a `503 Service Unavailable` response with a meaningful message is returned without fabricating Course data.
-5. Circuit Breaker state transitions are logged and Circuit Breaker health is exposed through Spring Boot Actuator.
+1. The API Gateway accepts the `X-Correlation-ID` header from the incoming request, or generates a new correlation ID when it is missing, and forwards it downstream.
+2. The Enrollment and Course services add the received correlation ID to the logging context (MDC) so that it appears in application logs.
+3. The Enrollment Service includes the `X-Correlation-ID` header in its request to the Course Service.
+4. Micrometer Tracing is configured (tracing dependency and sampling probability) to generate trace IDs and span IDs.
+5. The `RestClient` used for the service-to-service call is configured for tracing (observation registry) so that trace information is propagated to the Course Service.
+6. The logging pattern includes the correlation ID, trace ID and span ID.

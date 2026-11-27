@@ -28,17 +28,17 @@ public class EnrollmentService {
     }
 
     // Sprint 3: synchronous call to Course Service
-    public CourseResponseDTO getCourseForEnrollment(Long courseId) {
-        return courseClient.getCourseById(courseId);
+    public CourseResponseDTO getCourseForEnrollment(Long courseId, String correlationId) {
+        return courseClient.getCourseById(courseId, correlationId);
     }
 
     // Sprint 4: confirm an enrollment and publish an EnrollmentConfirmed event
-    public Enrollment confirmEnrollment(EnrollmentRequestDTO request) {
+    public Enrollment confirmEnrollment(EnrollmentRequestDTO request, String correlationId) {
 
         // Sprint 7: validate the course first (Retry + Circuit Breaker in CourseClient).
         // If the course does not exist (404) or Course Service is unavailable (503),
         // an exception is thrown here and no enrollment is saved.
-        courseClient.getCourseById(request.getCourseId());
+        courseClient.getCourseById(request.getCourseId(), correlationId);
 
         Enrollment savedEnrollment = enrollmentRepository.save(
                 new Enrollment(request.getLearnerId(), request.getCourseId()));

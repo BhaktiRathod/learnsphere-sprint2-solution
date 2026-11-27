@@ -1,19 +1,18 @@
-# Sprint 7 Verification: Resilience4j Retry and Circuit Breaker
+# Sprint 8 Verification: Distributed Logging and Tracing
 
-Run each step on the Docker Compose stack and replace each *Observed result* block with the real output
-(Enrollment Service log lines from `docker compose logs -f enrollment-service` and responses).
+Send `POST http://localhost:8080/enrollments` through the API Gateway (with and without an
+`X-Correlation-ID` header), then replace the *Observed result* block with the real log lines.
 
-| Step | Action | Expected |
-| --- | --- | --- |
-| 1. Normal operation | `POST /enrollments` with an existing course | `Attempting Course Service call ...` once; `201 Created` |
-| 2. Course not found | `POST /enrollments` with `courseId: 999999` | one attempt (no retry); `404 Course Not Found` |
-| 3. Course unavailable | `docker compose stop course-service`, `POST /enrollments` | 3 attempts, `Fallback executed ...`; `503`; no enrollment created |
-| 4. Circuit opens | more requests | `State transition from CLOSED to OPEN`; `/actuator/health` shows `OPEN` |
-| 5. Circuit open | another request | no `Attempting` line; immediate `503` |
-| 6. Half-open and recovery | `docker compose start course-service`, wait 10 s, send requests | `OPEN to HALF_OPEN`, then `HALF_OPEN to CLOSED`; `201 Created`; health shows `CLOSED` |
+| Check | Expected |
+| --- | --- |
+| Enrollment Service log `Enrollment request received` | `correlationId=<id>` `traceId=<T>` `spanId=<S1>` |
+| Enrollment Service log `Calling Course Service` | same `correlationId` and `traceId=<T>` |
+| Course Service log `Course request processed` | same `correlationId` and `traceId=<T>`, different `spanId` |
+| Request without the header | the API Gateway generates a correlation ID that appears in both services |
+| `GET http://localhost:8083/actuator/metrics` | lists `http.server.requests` and `http.client.requests` |
 
 **Observed result:**
 
 ```text
-(paste log lines, responses and /actuator/health output here)
+(paste Enrollment Service and Course Service log lines and the metrics output here)
 ```

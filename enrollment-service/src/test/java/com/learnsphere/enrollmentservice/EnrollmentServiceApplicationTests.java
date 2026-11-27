@@ -64,9 +64,9 @@ class EnrollmentServiceApplicationTests {
     void testGetCourseForEnrollment() {
         EnrollmentService service = mock(EnrollmentService.class);
         CourseResponseDTO course = new CourseResponseDTO(101L, "Spring Boot", "Deep Dive", "John Doe", 8, 199.99);
-        when(service.getCourseForEnrollment(101L)).thenReturn(course);
+        when(service.getCourseForEnrollment(101L, "corr-101")).thenReturn(course);
 
-        ResponseEntity<CourseResponseDTO> response = new EnrollmentController(service).getCourseForEnrollment(101L);
+        ResponseEntity<CourseResponseDTO> response = new EnrollmentController(service).getCourseForEnrollment(101L, "corr-101");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().getId()).isEqualTo(101L);
@@ -85,10 +85,11 @@ class EnrollmentServiceApplicationTests {
         when(repository.save(any(Enrollment.class))).thenReturn(saved);
 
         EnrollmentService service = new EnrollmentService(courseClient, repository, producer);
-        Enrollment result = service.confirmEnrollment(new EnrollmentRequestDTO(101L, 201L));
+        Enrollment result = service.confirmEnrollment(new EnrollmentRequestDTO(101L, 201L), "corr-201");
 
         assertThat(result.getId()).isEqualTo(1L);
-        verify(courseClient).getCourseById(201L);
+        // The same correlation ID is passed on to Course Service
+        verify(courseClient).getCourseById(201L, "corr-201");
 
         ArgumentCaptor<EnrollmentConfirmed> captor = ArgumentCaptor.forClass(EnrollmentConfirmed.class);
         verify(producer).sendEnrollmentConfirmed(captor.capture());
@@ -105,12 +106,12 @@ class EnrollmentServiceApplicationTests {
         CourseClient courseClient = mock(CourseClient.class);
         EnrollmentRepository repository = mock(EnrollmentRepository.class);
         EnrollmentEventProducer producer = mock(EnrollmentEventProducer.class);
-        when(courseClient.getCourseById(201L)).thenThrow(
+        when(courseClient.getCourseById(201L, "corr-201")).thenThrow(
                 new CourseServiceUnavailableException("Course service is currently unavailable. Please try again later."));
 
         EnrollmentService service = new EnrollmentService(courseClient, repository, producer);
 
-        assertThatThrownBy(() -> service.confirmEnrollment(new EnrollmentRequestDTO(101L, 201L)))
+        assertThatThrownBy(() -> service.confirmEnrollment(new EnrollmentRequestDTO(101L, 201L), "corr-201"))
                 .isInstanceOf(CourseServiceUnavailableException.class);
         verify(repository, never()).save(any(Enrollment.class));
         verify(producer, never()).sendEnrollmentConfirmed(any(EnrollmentConfirmed.class));
@@ -122,12 +123,12 @@ class EnrollmentServiceApplicationTests {
         CourseClient courseClient = mock(CourseClient.class);
         EnrollmentRepository repository = mock(EnrollmentRepository.class);
         EnrollmentEventProducer producer = mock(EnrollmentEventProducer.class);
-        when(courseClient.getCourseById(999L)).thenThrow(
+        when(courseClient.getCourseById(999L, "corr-999")).thenThrow(
                 new CourseNotFoundException("Course not found with id: 999"));
 
         EnrollmentService service = new EnrollmentService(courseClient, repository, producer);
 
-        assertThatThrownBy(() -> service.confirmEnrollment(new EnrollmentRequestDTO(101L, 999L)))
+        assertThatThrownBy(() -> service.confirmEnrollment(new EnrollmentRequestDTO(101L, 999L), "corr-999"))
                 .isInstanceOf(CourseNotFoundException.class);
         verify(repository, never()).save(any(Enrollment.class));
     }
