@@ -6,7 +6,7 @@ Enhance the **LearnSphere** microservices architecture by introducing **correlat
 
 A request in a microservices application can travel through multiple services before the operation is completed. The application should provide enough observability information to follow the request across these services and troubleshoot failures.
 
-In this practice, you will propagate a correlation ID across service-to-service requests, configure **Micrometer Tracing** to generate and propagate trace IDs and span IDs, include tracing information in application logs, and expose relevant metrics through **Spring Boot Actuator**.
+In this practice, you will propagate a correlation ID across service-to-service requests, configure **Micrometer Tracing** to generate and propagate trace IDs and span IDs, include tracing information in application logs, and expose relevant metrics from the Enrollment Service through **Spring Boot Actuator**.
 
 ---
 
@@ -33,6 +33,8 @@ X-Correlation-ID
 ```
 
 The API Gateway is the entry point, so it accepts the correlation ID from the client or generates one when it is missing. The downstream services read the correlation ID from the request header and add it to their logging context.
+
+> **Scope:** Requests enter LearnSphere through the API Gateway, which always sets the correlation ID. Downstream services (Enrollment Service, Course Service) are not called directly by clients, so they are not required to generate a correlation ID or to return it in the response.
 
 ---
 
@@ -118,17 +120,19 @@ correlationId=abc123 traceId=7f8a... spanId=8ac1... Course request processed
 
 The exact log format may vary, but the required identifiers must be available in the application logs.
 
+Add the logging pattern to the Enrollment Service and the Course Service. A logging pattern in the API Gateway is optional.
+
 ---
 
 ## Task-5: Expose Application and Tracing Metrics
 
 ### Task
 
-Expose relevant application and tracing metrics using Spring Boot Actuator.
+Expose relevant application and tracing metrics from the Enrollment Service using Spring Boot Actuator.
 
 ### Requirements
 
-The application must:
+The Enrollment Service must:
 
 * Include Spring Boot Actuator.
 * Expose the required Actuator endpoints.
@@ -144,7 +148,7 @@ GET /actuator/metrics
 
 The exact metrics available may depend on the configured tracing and application components.
 
-Exposing metrics from the Enrollment Service (the service that makes the downstream call, as shown in class) is sufficient for this practice. Adding Actuator to other services is optional.
+Metrics are required from the Enrollment Service only (the service that makes the downstream call, as shown in class). Adding Actuator to other services, such as the Course Service, is optional.
 
 ---
 
@@ -175,7 +179,7 @@ Verify the complete flow using application logs and Spring Boot Actuator.
 
 ### Verification Checklist
 
-Start the platform (`docker compose up --build -d`) and send a request through the API Gateway:
+Build the project (`mvn clean verify`), start the platform (`docker compose up --build -d`) and send a request through the API Gateway:
 
 ```bash
 # With your own correlation ID
@@ -217,7 +221,8 @@ curl http://localhost:8083/actuator/metrics/http.client.requests
 * Micrometer Tracing must be used for distributed tracing.
 * Trace IDs and span IDs must be generated and propagated across participating services.
 * Application logs must include the correlation ID, trace ID, and span ID.
-* Spring Boot Actuator must be used to expose application and relevant tracing metrics.
+* Spring Boot Actuator must be used in the Enrollment Service to expose application and relevant tracing metrics.
+* Requests enter through the API Gateway; downstream services are not required to generate or return a correlation ID.
 * The implementation must support tracing across multiple LearnSphere services.
 * The existing service communication must continue to work after observability features are added.
 
@@ -289,7 +294,7 @@ Span ID        → Identifies an individual operation
 ## Evaluation Criteria
 
 1. The API Gateway accepts the `X-Correlation-ID` header, or generates a correlation ID when it is missing, and forwards it to downstream services.
-2. The services add the correlation ID to their application logs.
+2. The Enrollment Service and the Course Service add the received correlation ID to their application logs.
 3. The correlation ID is passed on when the Enrollment Service calls the Course Service.
 4. Micrometer Tracing is added to the participating services (for example, using the tracing starter shown in class) so that logs include trace IDs and span IDs.
 5. The Enrollment Service includes Spring Boot Actuator and exposes the `/actuator/metrics` endpoint.
