@@ -35,6 +35,11 @@ public class EnrollmentService {
     // Sprint 4: confirm an enrollment and publish an EnrollmentConfirmed event
     public Enrollment confirmEnrollment(EnrollmentRequestDTO request) {
 
+        // Sprint 7: validate the course first (Retry + Circuit Breaker in CourseClient).
+        // If the course does not exist (404) or Course Service is unavailable (503),
+        // an exception is thrown here and no enrollment is saved.
+        courseClient.getCourseById(request.getCourseId());
+
         Enrollment savedEnrollment = enrollmentRepository.save(
                 new Enrollment(request.getLearnerId(), request.getCourseId()));
 

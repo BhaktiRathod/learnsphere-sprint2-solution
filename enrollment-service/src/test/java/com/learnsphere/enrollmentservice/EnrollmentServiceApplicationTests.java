@@ -13,6 +13,8 @@ import com.learnsphere.enrollmentservice.exception.GlobalExceptionHandler;
 import com.learnsphere.enrollmentservice.producer.EnrollmentEventProducer;
 import com.learnsphere.enrollmentservice.repository.EnrollmentRepository;
 import com.learnsphere.enrollmentservice.service.EnrollmentService;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -24,8 +26,10 @@ import org.springframework.http.ResponseEntity;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -84,6 +88,7 @@ class EnrollmentServiceApplicationTests {
         Enrollment result = service.confirmEnrollment(new EnrollmentRequestDTO(101L, 201L));
 
         assertThat(result.getId()).isEqualTo(1L);
+        verify(courseClient).getCourseById(201L);
 
         ArgumentCaptor<EnrollmentConfirmed> captor = ArgumentCaptor.forClass(EnrollmentConfirmed.class);
         verify(producer).sendEnrollmentConfirmed(captor.capture());
@@ -92,6 +97,52 @@ class EnrollmentServiceApplicationTests {
         assertThat(event.getEnrollmentId()).isEqualTo(1L);
         assertThat(event.getLearnerId()).isEqualTo(101L);
         assertThat(event.getCourseId()).isEqualTo(201L);
+    }
+
+    @Test
+    @DisplayName("Course Service unavailable: no enrollment is saved and no event is published")
+    void testNoEnrollmentWhenCourseServiceUnavailable() {
+        CourseClient courseClient = mock(CourseClient.class);
+        EnrollmentRepository repository = mock(EnrollmentRepository.class);
+        EnrollmentEventProducer producer = mock(EnrollmentEventProducer.class);
+        when(courseClient.getCourseById(201L)).thenThrow(
+                new CourseServiceUnavailableException("Course service is currently unavailable. Please try again later."));
+
+        EnrollmentService service = new EnrollmentService(courseClient, repository, producer);
+
+        assertThatThrownBy(() -> service.confirmEnrollment(new EnrollmentRequestDTO(101L, 201L)))
+                .isInstanceOf(CourseServiceUnavailableException.class);
+        verify(repository, never()).save(any(Enrollment.class));
+        verify(producer, never()).sendEnrollmentConfirmed(any(EnrollmentConfirmed.class));
+    }
+
+    @Test
+    @DisplayName("Course not found: no enrollment is saved and no event is published")
+    void testNoEnrollmentWhenCourseNotFound() {
+        CourseClient courseClient = mock(CourseClient.class);
+        EnrollmentRepository repository = mock(EnrollmentRepository.class);
+        EnrollmentEventProducer producer = mock(EnrollmentEventProducer.class);
+        when(courseClient.getCourseById(999L)).thenThrow(
+                new CourseNotFoundException("Course not found with id: 999"));
+
+        EnrollmentService service = new EnrollmentService(courseClient, repository, producer);
+
+        assertThatThrownBy(() -> service.confirmEnrollment(new EnrollmentRequestDTO(101L, 999L)))
+                .isInstanceOf(CourseNotFoundException.class);
+        verify(repository, never()).save(any(Enrollment.class));
+    }
+
+    @Test
+    @DisplayName("Circuit Breaker OPEN is returned as 503 with a meaningful message")
+    void testCircuitBreakerOpenHandled() {
+        CircuitBreaker breaker = CircuitBreaker.ofDefaults("courseService");
+        breaker.transitionToOpenState();
+
+        ResponseEntity<ProblemDetail> response = new GlobalExceptionHandler()
+                .handleCircuitBreakerOpen(CallNotPermittedException.createCallNotPermittedException(breaker));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().getDetail()).contains("Course service is currently unavailable");
     }
 
     @Test

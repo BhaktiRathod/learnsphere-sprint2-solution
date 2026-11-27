@@ -1,249 +1,282 @@
-# Practice: Implement Application-Level Caching
+# Practice: Handle Service Failures with Resilience4j
 
 ## Problem Statement
 
-Enhance the **LearnSphere** microservices architecture by introducing **application-level caching** in a new **Resource Service**.
+Enhance the **Enrollment Service** by making its communication with the **Course Service** resilient to temporary downstream failures.
 
-Create the Resource Service as an independent Spring Boot module under the existing LearnSphere parent project. The service will manage resource information and use **Spring Cache** with **Caffeine** to reduce repeated database access.
+The Enrollment Service already uses synchronous communication to retrieve Course information before creating an enrollment. In this practice, you will use **Resilience4j Retry** and **Circuit Breaker** to handle situations where the Course Service is temporarily unavailable.
 
-The Resource Service must cache resource data when it is retrieved and remove stale cached data when a resource is updated.
+The Enrollment Service must retry only appropriate downstream availability failures, prevent enrollment creation when Course validation cannot be completed, and return a controlled **503 Service Unavailable** response when the Course Service remains unavailable.
 
----
-
-## Task-1: Create the Resource Service
-
-### Task
-
-Create a standalone Resource Service as a new Spring Boot module under the LearnSphere parent project.
-
-### Requirements
-
-The Resource Service must:
-
-* Be added as a module in the LearnSphere parent Maven project.
-* Have its own `pom.xml`.
-* Be a Spring Boot application.
-* Have its own application entry point.
-* Be independently bootable.
-* Have its own database configuration.
-* Follow the same service structure used by the existing LearnSphere services.
-
-The Resource Service must not be implemented as part of an existing service.
+The Circuit Breaker must also expose its state through **Spring Boot Actuator** and log state transitions so that the complete `CLOSED → OPEN → HALF_OPEN → CLOSED` lifecycle can be observed.
 
 ---
 
-## Task-2: Create the Resource Document and DTO
+## Task-1: Configure Resilience4j
 
 ### Task
 
-Create the data model required by the Resource Service.
+Add and configure Resilience4j in the Enrollment Service.
 
 ### Requirements
 
-Create a `Resource` document containing appropriate resource information, such as:
+The Enrollment Service must:
 
-* `id`
-* `name`
-* `description`
-* `url`
-
-The `Resource` class must:
-
-* Be configured as a MongoDB document.
-* Have a unique identifier.
-* Store resource information in the Resource Service's database.
-
-Create a separate `ResourceDTO` to represent resource data exposed through the REST API.
-
-The API must use the DTO rather than directly exposing the persistence document.
+* Include the required Resilience4j dependencies.
+* Configure a Retry instance for Course Service communication.
+* Configure a Circuit Breaker for Course Service communication.
+* Apply the resilience mechanisms to the existing Course Service call.
+* Use appropriate configuration values for retry attempts, wait duration, and Circuit Breaker thresholds.
 
 ---
 
-## Task-3: Implement Resource Retrieval with Caching
+## Task-2: Configure Retry for Course Service Availability Failures
 
 ### Task
 
-Implement an API to retrieve a resource by ID and cache the retrieved resource.
+Configure Retry so that temporary Course Service availability failures are retried.
 
 ### Requirements
 
-Create the following API:
+The Retry configuration must:
 
-| HTTP Method | Endpoint              | Purpose                   |
-| ----------- | --------------------- | ------------------------- |
-| `GET`       | `/api/resources/{id}` | Retrieve a resource by ID |
+* Retry only failures that indicate the Course Service is unavailable.
+* Retry communication failures such as connection failures or downstream timeouts.
+* Not retry a `404 Not Found` response from the Course Service.
+* Not retry other failures that represent a valid downstream response.
+* Use a finite maximum number of retry attempts.
+* Use an appropriate wait duration between retry attempts.
 
-The service method handling the retrieval must:
+For example:
 
-* Use `@Cacheable`.
-* Use an appropriate cache name.
-* Use the resource ID as the cache key.
-* Retrieve the resource from the database when it is not present in the cache.
-* Return the cached value for subsequent requests for the same resource.
+```text
+Course Service unavailable
+        │
+        ▼
+     Retry
+        │
+   ┌────┴────┐
+   │         │
+Success    Still failing
+   │         │
+   ▼         ▼
+Continue   Circuit Breaker
+```
 
-The first request for a resource should retrieve the data from the database and place it in the cache.
-
-Subsequent requests for the same resource should be served from the cache while the cached entry is valid.
+A missing Course is a valid business response and must not be treated as a temporary availability failure.
 
 ---
 
-## Task-4: Implement Resource Update with Cache Eviction
+## Task-3: Configure the Circuit Breaker
 
 ### Task
 
-Implement an API to update a resource and remove its stale cached data.
+Configure a Circuit Breaker to track the relevant Course Service availability failures.
 
 ### Requirements
 
-Create the following API:
+The Circuit Breaker must:
 
-| HTTP Method | Endpoint              | Purpose           |
-| ----------- | --------------------- | ----------------- |
-| `PUT`       | `/api/resources/{id}` | Update a resource |
+* Track only the failures that represent Course Service availability problems.
+* Not treat a missing Course (`404`) as a Circuit Breaker failure.
+* Open the circuit after the configured failure threshold is reached.
+* Prevent unnecessary downstream calls while the circuit is open.
+* Transition to `HALF_OPEN` after the configured wait duration.
+* Allow trial requests in `HALF_OPEN`.
+* Return to `CLOSED` when the Course Service successfully recovers.
 
-The service method handling the update must:
+The expected state lifecycle is:
 
-* Update the resource in the database.
-* Use `@CacheEvict`.
-* Evict the cache entry corresponding to the updated resource.
-* Use the resource ID as the cache key.
-
-After a successful update, the next GET request for the resource must retrieve the updated data from the database and place the new value in the cache.
+```text
+CLOSED
+   │
+   │ Repeated Course Service failures
+   ▼
+ OPEN
+   │
+   │ Wait duration
+   ▼
+HALF_OPEN
+   │
+   │ Successful trial request
+   ▼
+ CLOSED
+```
 
 ---
 
-## Task-5: Configure Caffeine Caching
+## Task-4: Prevent Enrollment Creation During Course Service Failure
 
 ### Task
 
-Configure application-level caching using Spring Cache and Caffeine.
+Ensure that an enrollment is created only after the Course Service successfully validates the requested Course.
 
 ### Requirements
 
-The Resource Service must:
+The Enrollment Service must:
 
-* Include the required Spring Cache dependency.
-* Include the Caffeine caching dependency.
-* Enable Spring's caching support.
-* Configure Caffeine as the cache provider.
-* Define an appropriate cache name for resources.
-* Configure a suitable TTL (time-to-live) for cached resource data.
-* Ensure that cached entries expire after the configured TTL.
+* Request the Course information before creating the enrollment.
+* Create the enrollment only when Course validation succeeds.
+* Not create an enrollment when the Course Service is unavailable.
+* Not create an enrollment when the downstream request times out.
+* Not create an enrollment when the Circuit Breaker is open.
+* Not fabricate or substitute Course information when the Course Service cannot be reached.
 
-The TTL value may be chosen appropriately for the application.
+The enrollment must be persisted only after successful Course validation.
 
 ---
 
-## Task-6: Verify Cache Behavior
+## Task-5: Configure a Controlled Fallback
 
 ### Task
 
-Verify that caching and cache eviction work correctly.
+Provide a fallback for Course Service availability failures.
 
 ### Requirements
 
-Test the following scenarios:
+The fallback must:
 
-| Scenario           | Action                                                         | Expected Result                                               |
-| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------- |
-| First GET          | Request a resource for the first time                          | Resource is retrieved from the database and cached            |
-| Repeated GET       | Request the same resource again                                | Cached resource is returned                                   |
-| Different resource | Request another resource                                       | The corresponding resource is retrieved and cached separately |
-| Update             | Update the resource using PUT                                  | Resource is updated and its cache entry is evicted            |
-| GET after update   | Request the updated resource again                             | Updated resource is retrieved and cached                      |
-| TTL expiry         | Wait for the configured TTL to expire and request the resource | Resource is retrieved again and cached                        |
+* Handle failures after Retry and Circuit Breaker processing.
+* Return a controlled `503 Service Unavailable` response.
+* Provide a meaningful error message.
+* Not create an enrollment.
+* Not create or fabricate Course data.
+* Not hide a genuine `404 Course Not Found` response as a `503`.
 
-Verify the cache behavior using suitable application logs or debugging.
+For example:
 
-> **Scope:** Verifying the scenarios with the application logs is sufficient. Automated integration tests (for example, with Testcontainers or a short test TTL) are optional.
+```json
+{
+  "status": 503,
+  "message": "Course service is currently unavailable. Please try again later."
+}
+```
+
+The exact response structure may vary, but the response must clearly indicate that the downstream Course Service is unavailable.
+
+---
+
+## Task-6: Log Circuit Breaker State Transitions
+
+### Task
+
+Configure logging so that Circuit Breaker state changes can be observed.
+
+### Requirements
+
+The Enrollment Service must log Circuit Breaker state transitions, including transitions such as:
+
+```text
+CLOSED → OPEN
+OPEN → HALF_OPEN
+HALF_OPEN → CLOSED
+```
+
+The logs must make it possible to identify:
+
+* The previous state.
+* The new state.
+
+For example:
+
+```text
+Circuit Breaker State Changed: State transition from CLOSED to OPEN
+```
+
+---
+
+## Task-7: Expose Circuit Breaker Health Through Actuator
+
+### Task
+
+Expose the Circuit Breaker state through Spring Boot Actuator.
+
+### Requirements
+
+The Enrollment Service must:
+
+* Include Spring Boot Actuator.
+* Expose the required Actuator endpoint.
+* Expose Circuit Breaker health information.
+* Allow the current Circuit Breaker state to be observed.
+
+Verify the Circuit Breaker state using an appropriate Actuator endpoint.
+
+For example:
+
+```http
+GET /actuator/health
+```
+
+The response should provide Circuit Breaker health information when the Circuit Breaker is configured for health monitoring.
+
+---
+
+## Task-8: Verify Circuit Breaker State Transitions
+
+### Task
+
+Stop and restart the Course Service to observe the Circuit Breaker lifecycle.
+
+### Requirements
+
+Verify the following scenarios:
+
+| Scenario           | Action                                                         | Expected Result                                         |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------- |
+| Normal operation   | Course Service is running and an enrollment is requested       | Course is validated and enrollment is created           |
+| Course unavailable | Stop Course Service and request an enrollment                  | Retry attempts occur and enrollment is not created      |
+| Circuit opens      | Continue sending requests while Course Service is unavailable  | Circuit transitions from `CLOSED` to `OPEN`             |
+| Circuit open       | Send another enrollment request                                | Request fails fast without creating an enrollment       |
+| Half-open          | Wait for the configured open-state duration                    | Circuit transitions to `HALF_OPEN`                      |
+| Recovery           | Restart Course Service and send a trial request                | Course validation succeeds                              |
+| Circuit closes     | Continue sending successful requests                           | Circuit transitions from `HALF_OPEN` to `CLOSED`        |
+| Course not found   | Request an enrollment for a non-existing Course                | `404` is returned without Retry or Circuit Breaker failure |
+
+Verify the Circuit Breaker state using both application logs and Spring Boot Actuator.
+
+> **Scope:** Verifying the scenarios with the application logs and Actuator is sufficient. Automated integration tests are optional.
 
 ### Verification Checklist
 
-Start MongoDB and the Resource Service, then run the requests below and watch the Resource Service logs. The service logs a line such as `Fetching resource <id> from MongoDB` only when it reads from the database (cache miss).
-
-**1. Create two resources (to have data to retrieve)**
+Start the platform (`docker compose up --build -d`), then send enrollment requests and watch the Enrollment Service logs (`docker compose logs -f enrollment-service`).
 
 ```bash
-curl -X POST http://localhost:8085/api/resources \
+# Enrollment request (replace 1 with an existing course id)
+curl -X POST http://localhost:8083/enrollments \
   -H "Content-Type: application/json" \
-  -d '{"name": "Spring Boot Guide", "description": "Getting started", "url": "https://learnsphere.io/r/1"}'
+  -d '{"learnerId": 101, "courseId": 1}'
 
-curl -X POST http://localhost:8085/api/resources \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Docker Basics", "description": "Containers", "url": "https://learnsphere.io/r/2"}'
+# Circuit Breaker state
+curl http://localhost:8083/actuator/health
 ```
 
-Note the `id` returned for each resource.
-
-**2. First GET (cache miss)**
-
-```bash
-curl http://localhost:8085/api/resources/<id1>
-```
-
-Expected: the resource is returned, and the log shows `Fetching resource <id1> from MongoDB`.
-
-**3. Repeated GET (cache hit)**
-
-```bash
-curl http://localhost:8085/api/resources/<id1>
-```
-
-Expected: the same resource is returned, and the MongoDB-read log does **not** appear again.
-
-**4. Different resource (cached separately)**
-
-```bash
-curl http://localhost:8085/api/resources/<id2>
-curl http://localhost:8085/api/resources/<id2>
-```
-
-Expected: the first call logs `Fetching resource <id2> from MongoDB`; the second call does not.
-
-**5. Update (cache eviction)**
-
-```bash
-curl -X PUT http://localhost:8085/api/resources/<id1> \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Spring Boot Guide v2", "description": "Updated", "url": "https://learnsphere.io/r/1-v2"}'
-```
-
-Expected: `200 OK` with the updated resource; the log shows the update and cache eviction.
-
-**6. GET after update**
-
-```bash
-curl http://localhost:8085/api/resources/<id1>
-```
-
-Expected: the updated data is returned, and the log shows `Fetching resource <id1> from MongoDB` again.
-
-**7. TTL expiry**
-
-Wait longer than the configured TTL, then request the resource again:
-
-```bash
-curl http://localhost:8085/api/resources/<id1>
-```
-
-Expected: the log shows `Fetching resource <id1> from MongoDB`, confirming the cached entry expired.
+| Step | Action | Expected log / response |
+| --- | --- | --- |
+| 1 | Course Service running, send a request | `Attempting Course Service call ...` once; `201 Created` |
+| 2 | Request a non-existing course (for example `courseId: 999999`) | `Attempting ...` once (no retry); `404 Course Not Found` |
+| 3 | `docker compose stop course-service`, send a request | `Attempting ...` 3 times, `Fallback executed ...`; `503`; no enrollment created |
+| 4 | Send more requests | `State transition from CLOSED to OPEN`; health shows `OPEN` |
+| 5 | Send a request while OPEN | No `Attempting` line; immediate `503` |
+| 6 | `docker compose start course-service`, wait for the open-state duration, send requests | `State transition from OPEN to HALF_OPEN`, then `State transition from HALF_OPEN to CLOSED`; `201 Created`; health shows `CLOSED` |
 
 ---
 
 ## Constraints
 
-* The Resource Service must be created as a new Spring Boot module under the LearnSphere parent Maven project.
-* The Resource Service must be independently bootable and manageable.
-* Resource persistence must use a MongoDB document.
-* A separate `ResourceDTO` must be used for API data.
-* `GET /api/resources/{id}` must use `@Cacheable`.
-* `PUT /api/resources/{id}` must use `@CacheEvict`.
-* The cache must use Spring Cache with Caffeine.
-* A suitable TTL must be configured for the resource cache.
-* The resource ID must be used as the cache key.
-* The Resource Service must not be added as functionality inside an existing LearnSphere service.
-* Cached data must be evicted when the corresponding resource is successfully updated.
-* Cache behavior may be verified using application logs; automated integration tests are optional.
+* Resilience4j must be used for Retry and Circuit Breaker functionality.
+* Retry must apply only to Course Service availability failures.
+* A `404 Not Found` from Course Service must not trigger Retry.
+* A `404 Not Found` from Course Service must not count as a Circuit Breaker failure.
+* The Circuit Breaker must track the relevant downstream availability failures only.
+* Enrollment creation must occur only after successful Course validation.
+* An enrollment must not be created when Course validation cannot be completed.
+* The fallback must return `503 Service Unavailable` for Course Service availability failures.
+* The fallback must not fabricate Course data.
+* Circuit Breaker state transitions must be logged.
+* Circuit Breaker health must be exposed through Spring Boot Actuator.
+* The Circuit Breaker lifecycle must be verified through `CLOSED → OPEN → HALF_OPEN → CLOSED`.
+* Normal requests must continue successfully after the Course Service recovers.
 
 ---
 
@@ -266,24 +299,23 @@ learnsphere/
 │   └── ...
 │
 ├── enrollment-service/
-│   └── ...
+│   ├── pom.xml
+│   └── src/
+│       └── main/
+│           ├── java/
+│           │   ├── EnrollmentServiceApplication.java
+│           │   ├── EnrollmentController.java
+│           │   ├── EnrollmentService.java
+│           │   ├── CourseClient.java
+│           │   └── ...
+│           └── resources/
+│               └── application.properties
 │
 ├── notification-service/
 │   └── ...
 │
 ├── resource-service/
-│   ├── pom.xml
-│   └── src/
-│       └── main/
-│           ├── java/
-│           │   ├── ResourceServiceApplication.java
-│           │   ├── Resource.java
-│           │   ├── ResourceDTO.java
-│           │   ├── ResourceRepository.java
-│           │   ├── ResourceService.java
-│           │   └── ResourceController.java
-│           └── resources/
-│               └── application.properties
+│   └── ...
 │
 └── README.md
 ```
@@ -293,36 +325,39 @@ learnsphere/
 ## Architecture
 
 ```text
-                         LearnSphere
-                              │
-                              ▼
-                      Resource Service
-                              │
-                 ┌────────────┴────────────┐
-                 │                         │
-                 ▼                         ▼
-             Caffeine                  MongoDB
-              Cache                   Resource Data
-                 │
-                 │
-        ┌────────┴────────┐
-        │                 │
-   GET /{id}         PUT /{id}
-   @Cacheable        @CacheEvict
-        │                 │
-        ▼                 ▼
-   Return cached     Update database
-      data           Evict cache
+                         Client
+                           │
+                           ▼
+                   Enrollment Service
+                           │
+                           ▼
+                    Resilience4j
+                  ┌────────┴────────┐
+                  │                 │
+                Retry        Circuit Breaker
+                  │                 │
+                  └────────┬────────┘
+                           │
+                       RestClient
+                           │
+                           ▼
+                      Eureka
+                           │
+                           ▼
+                    Course Service
 ```
 
-The Resource Service owns its resource data and manages its application-level cache independently using Spring Cache and Caffeine.
+When the Course Service is unavailable, the Enrollment Service retries the appropriate failures. If failures continue, the Circuit Breaker opens and subsequent requests fail without repeatedly calling the unavailable service.
+
+Once the Course Service recovers, the Circuit Breaker moves through `HALF_OPEN` and, after a successful trial request, returns to `CLOSED`.
 
 ---
 
 ## Evaluation Criteria
 
-1. A standalone Resource Service module is added to the LearnSphere parent Maven project, with its own `pom.xml`, Spring Boot application class and `application.properties`.
-2. A MongoDB `Resource` document and a separate `ResourceDTO` are implemented, and the REST API uses the `ResourceDTO`.
-3. The service method for `GET /api/resources/{id}` is annotated with `@Cacheable` using the resource ID as the cache key.
-4. The service method for `PUT /api/resources/{id}` updates the resource and is annotated with `@CacheEvict` using the resource ID as the cache key.
-5. Spring caching is enabled and Caffeine is configured as the cache provider with a TTL for the resource cache.
+1. Resilience4j Retry is configured for the Course Service call (`@Retry` with `max-attempts` and `wait-duration`) and retries only the Course Service availability exception (`retry-exceptions`).
+2. Course Service timeouts and communication failures (connection failure, read timeout, no available instance) are mapped to the Course Service availability exception that Retry and the Circuit Breaker handle.
+3. A Course Service `404 Not Found` is mapped to a separate Course-not-found exception that is not listed in `retry-exceptions` or `record-exceptions`, so it is not retried and does not count as a Circuit Breaker failure.
+4. A Circuit Breaker (`@CircuitBreaker`) is configured for the Course Service call with a failure-rate threshold, open-state wait duration and half-open permitted calls, and records only the availability exception.
+5. The enrollment creation method calls the Course Service to validate the Course before saving the enrollment.
+6. The fallback and exception handling return `503 Service Unavailable` with a meaningful message and do not return or fabricate Course data.
