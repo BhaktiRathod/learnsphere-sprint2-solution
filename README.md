@@ -144,6 +144,8 @@ GET /actuator/metrics
 
 The exact metrics available may depend on the configured tracing and application components.
 
+Exposing metrics from the Enrollment Service (the service that makes the downstream call, as shown in class) is sufficient for this practice. Adding Actuator to other services is optional.
+
 ---
 
 ## Task-6: Verify Distributed Observability
@@ -290,4 +292,4 @@ Span ID        → Identifies an individual operation
 2. The services add the correlation ID to their application logs.
 3. The correlation ID is passed on when the Enrollment Service calls the Course Service.
 4. Micrometer Tracing is added to the participating services (for example, using the tracing starter shown in class) so that logs include trace IDs and span IDs.
-5. Spring Boot Actuator is included and exposes metrics.
+5. The Enrollment Service includes Spring Boot Actuator and exposes the `/actuator/metrics` endpoint.
