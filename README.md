@@ -356,8 +356,8 @@ Once the Course Service recovers, the Circuit Breaker moves through `HALF_OPEN` 
 
 ## Evaluation Criteria
 
-1. Resilience4j `@Retry` and `@CircuitBreaker` are applied to the Course Service call and configured in `application.properties` (retry attempts and wait duration; failure threshold, open-state wait duration and half-open calls).
-2. Retry and the Circuit Breaker handle only the Course Service availability exception; a `404 Course Not Found` is mapped to a separate exception that is not retried and not recorded as a Circuit Breaker failure.
-3. The enrollment is saved only after the Course Service call to validate the Course succeeds.
-4. A fallback or exception handler returns `503 Service Unavailable` with a meaningful message for Course Service unavailability (including an open circuit) without returning or fabricating Course data.
+1. Resilience4j `@Retry` and `@CircuitBreaker` are applied to the Course Service call and configured in `application.properties`.
+2. A Course Service `404 Not Found` is handled separately and is not retried or counted as a Circuit Breaker failure.
+3. The enrollment is saved only after the Course Service call succeeds.
+4. When the Course Service is unavailable or the circuit is open, a `503 Service Unavailable` response with a meaningful message is returned without fabricating Course data.
 5. Circuit Breaker state transitions are logged and Circuit Breaker health is exposed through Spring Boot Actuator.
